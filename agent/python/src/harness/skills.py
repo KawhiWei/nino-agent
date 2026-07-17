@@ -32,6 +32,7 @@ class Skill:
     intent_keywords: tuple[str, ...]
     allowed_tools: frozenset[str]
     max_steps: int
+    excluded_intent_keywords: tuple[str, ...] = ()
     references: tuple[SkillReference, ...] = ()
     is_default: bool = False
     capabilities: tuple[str, ...] = ()
@@ -77,8 +78,12 @@ class SkillRegistry:
         if not 1 <= max_steps <= 20:
             raise SkillConfigurationError("Skill max_steps must be between 1 and 20.")
         keywords = tuple(str(value).strip().lower() for value in manifest["intent_keywords"])
+        excluded_keywords = tuple(
+            str(value).strip().lower()
+            for value in manifest.get("excluded_intent_keywords", ())
+        )
         tools = frozenset(str(value).strip() for value in manifest["allowed_tools"])
-        if not all(keywords) or not tools:
+        if not all(keywords) or not all(excluded_keywords) or not tools:
             raise SkillConfigurationError("Skill keywords and allowed tools cannot be empty.")
         references = SkillRegistry._load_references(manifest_path, manifest.get("references", []))
         loop_config = manifest.get("loop", {})
@@ -92,6 +97,7 @@ class SkillRegistry:
             id=str(manifest["id"]), name=document.name, version=str(manifest["version"]),
             description=document.description, instructions=document.body,
             intent_keywords=keywords, allowed_tools=tools, max_steps=max_steps,
+            excluded_intent_keywords=excluded_keywords,
             references=references, is_default=bool(manifest.get("is_default", False)),
             capabilities=tuple(str(item) for item in manifest.get("capabilities", ())),
             risk_level=str(manifest.get("risk_level", "read-only")),
@@ -128,16 +134,30 @@ class SkillRegistry:
             raise SkillConfigurationError(f"Unknown skill: {skill_id}")
         return match
 
-    def route(self, user_input: str) -> Skill:
+    def matches(self, user_input: str) -> tuple[Skill, ...]:
+        """Return only explicitly matched Skills, ordered by keyword evidence."""
+
         normalized = user_input.lower()
         ranked = sorted(
-            ((sum(normalized.count(keyword) for keyword in skill.intent_keywords), skill.id, skill)
-             for skill in self._skills),
-            key=lambda item: (-item[0], item[1]),
+            (
+                (
+                    0
+                    if any(keyword in normalized for keyword in skill.excluded_intent_keywords)
+                    else sum(normalized.count(keyword) for keyword in skill.intent_keywords)
+                ),
+                skill.id,
+                skill,
+            )
+            for skill in self._skills
         )
-        if ranked[0][0] > 0:
-            return ranked[0][2]
-        default = next((skill for skill in self._skills if skill.is_default), None)
-        if default is not None:
-            return default
-        raise SkillConfigurationError("No skill matched the user input and no default is configured.")
+        return tuple(
+            item[2]
+            for item in sorted(ranked, key=lambda item: (-item[0], item[1]))
+            if item[0] > 0
+        )
+
+    def route(self, user_input: str) -> Skill:
+        matches = self.matches(user_input)
+        if matches:
+            return matches[0]
+        raise SkillConfigurationError("No registered skill matched the user input.")

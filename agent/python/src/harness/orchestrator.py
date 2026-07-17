@@ -23,9 +23,15 @@ DISPATCH_TOOL_NAME = "nino_runtime_dispatch_agent"
 class OrchestratorHarness:
     """Business-neutral control plane over isolated specialist ReAct workers.
 
-    The primary model sees capability summaries, never business instructions or MCP tools. It may
-    answer ordinary questions directly or dispatch bounded tasks to a compatible Agent + Skill pair.
+    The primary model sees capability summaries, never business instructions or MCP tools. Strict
+    scope policy rejects unmatched input before a model call and requires an approved dispatch
+    before accepting model-generated output.
     """
+
+    OUT_OF_SCOPE_ANSWER = (
+        "当前请求不在已注册 Skill 的能力范围内，无法执行或自由扩展回答。"
+        "请改为使用当前已注册的数据查询、统计、异常分析或报表分析能力。"
+    )
 
     def __init__(
         self,
@@ -89,7 +95,27 @@ class OrchestratorHarness:
                 LoopStopReason.POLICY_VIOLATION,
             ))
 
-        candidates = self._candidates()
+        matched_skill_ids = {skill.id for skill in self._skills.matches(user_input)}
+        candidates = self._candidates(matched_skill_ids)
+        if not candidates:
+            loop.stop(
+                LoopStatus.COMPLETED,
+                LoopStopReason.POLICY_VIOLATION,
+                "OUT_OF_SCOPE",
+            )
+            await emit(
+                "policy_rejected", error_code="OUT_OF_SCOPE",
+                policy="registered_skill_scope",
+            )
+            await checkpoint("terminal")
+            await emit(
+                "run_completed", step=0, agent_id=self._primary.id,
+                outcome="out_of_scope",
+            )
+            return RunResult(
+                run_id, RunStatus.COMPLETED, self.OUT_OF_SCOPE_ANSWER,
+                None, 0, tuple(events),
+            )
         tools = (self._dispatch_tool(candidates),) if candidates else ()
         messages = [
             Message(role="system", content=self._primary.instructions),
@@ -98,6 +124,7 @@ class OrchestratorHarness:
             Message(role="user", content=user_input.strip()),
         ]
         used_skills: set[str] = set()
+        successful_dispatches = 0
 
         try:
             while True:
@@ -122,6 +149,22 @@ class OrchestratorHarness:
                             "EMPTY_MODEL_RESPONSE",
                             "Orchestrator returned neither text nor dispatch calls.",
                             LoopStopReason.NO_PROGRESS,
+                        ))
+                    if successful_dispatches == 0:
+                        code = (
+                            "DISPATCH_REQUIRED"
+                            if not used_skills
+                            else "SUCCESSFUL_DISPATCH_REQUIRED"
+                        )
+                        await emit(
+                            "policy_rejected", error_code=code,
+                            policy="registered_skill_dispatch",
+                        )
+                        return await fail(LoopViolation(
+                            code,
+                            "A matched request requires at least one successful registered Agent "
+                            "and Skill dispatch before a final answer.",
+                            LoopStopReason.POLICY_VIOLATION,
                         ))
                     loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
                     await checkpoint("terminal")
@@ -181,6 +224,8 @@ class OrchestratorHarness:
                         )
                     if child.status == RunStatus.CANCELLED:
                         raise asyncio.CancelledError
+                    if child.status == RunStatus.COMPLETED:
+                        successful_dispatches += 1
                     await emit(
                         "agent_completed" if child.status == RunStatus.COMPLETED else "agent_failed",
                         step=step, parent_run_id=run_id, child_run_id=child_run_id,
@@ -229,10 +274,14 @@ class OrchestratorHarness:
                 "DEPENDENCY_ERROR", str(exc), LoopStopReason.DEPENDENCY_ERROR
             ))
 
-    def _candidates(self) -> tuple[tuple[AgentDefinition, Any], ...]:
+    def _candidates(
+        self, matched_skill_ids: set[str] | None = None,
+    ) -> tuple[tuple[AgentDefinition, Any], ...]:
         candidates: list[tuple[AgentDefinition, Any]] = []
         for agent in self._agents.delegates_for(self._primary):
             for skill_id in sorted(agent.allowed_skills):
+                if matched_skill_ids is not None and skill_id not in matched_skill_ids:
+                    continue
                 candidates.append((agent, self._skills.get(skill_id)))
         return tuple(candidates)
 
@@ -252,7 +301,9 @@ class OrchestratorHarness:
         return (
             "Dynamic capability catalog (metadata only):\n"
             + json.dumps(catalog, ensure_ascii=False)
-            + "\nSelect only listed Agent + Skill pairs. Business instructions are loaded by the worker."
+            + "\nThis request already matched the listed Skills. You must dispatch one listed "
+            "Agent + Skill pair before answering. Never answer the request directly. Business "
+            "instructions are loaded by the worker."
         )
 
     @staticmethod

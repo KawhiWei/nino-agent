@@ -82,12 +82,11 @@ sequenceDiagram
     participant TP as ToolProvider Port
 
     S->>O: run(question, history)
-    O->>C: compatible specialist + Skill pairs
-    O->>M: complete(history, capability metadata, dispatch tool)
-    alt ordinary answer or no capability needed
-        M-->>O: ModelTurn(text)
-        O-->>S: completed RunResult
-    else structured dispatch
+    O->>C: match registered Skills
+    alt no Skill matched
+        O-->>S: fixed OUT_OF_SCOPE without model call
+    else Skill matched
+        O->>M: complete(history, matched capability metadata, dispatch tool)
         M-->>O: dispatch(agent_id, skill_id, task, context)
         O->>O: validate discovered pair and duplicate signature
         O->>W: run(selected_skill_id, fresh task context)
@@ -106,6 +105,14 @@ sequenceDiagram
         O-->>S: completed RunResult
     end
 ```
+
+主模型在首次 dispatch 前返回自由文本会被 `DISPATCH_REQUIRED` 拒绝；所有子 dispatch 均失败时
+会被 `SUCCESSFUL_DISPATCH_REQUIRED` 拒绝。Worker 在没有成功业务 Tool
+Observation 时返回事实性文本会被 `EVIDENCE_REQUIRED` 拒绝；只有简短澄清问题可以无证据结束。
+三类拒绝都会产生 `policy_rejected`，并写入终态 `loop_checkpoint`。
+
+缺参澄清也必须通过内部结构化 Action `nino_runtime_request_clarification`，成功后产生
+`clarification_requested`。Worker 直接返回澄清文本仍会被 `EVIDENCE_REQUIRED` 拒绝。
 
 Orchestrator 和 Worker 使用不同的内部 Tool：
 

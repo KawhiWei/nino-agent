@@ -27,6 +27,38 @@
     "margin",
     "nino data"
   ],
+  "excluded_intent_keywords": [
+    "创建订单",
+    "新增订单",
+    "添加订单",
+    "写入数据库",
+    "修改订单",
+    "更新订单",
+    "删除订单",
+    "直接下单",
+    "发起退款",
+    "退款操作",
+    "写诗",
+    "写文章",
+    "编写代码",
+    "代码实现",
+    "讲故事",
+    "天气",
+    "新闻",
+    "翻译",
+    "闲聊",
+    "create order",
+    "insert order",
+    "update order",
+    "delete order",
+    "write database",
+    "poem",
+    "story",
+    "weather",
+    "news",
+    "translate",
+    "write code"
+  ],
   "allowed_tools": [
     "nino_data_get_order_detail",
     "nino_data_query_summary",
@@ -54,6 +86,7 @@
       "description": "Required report structure and presentation rules."
     }
   ],
+  "evaluation_suites": ["evals/standard.json"],
   "max_steps": 5,
   "is_default": false
 }

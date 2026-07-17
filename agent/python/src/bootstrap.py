@@ -19,9 +19,9 @@ class RuntimeSettings:
     mode: str = "demo"
     engine: str = "lightweight"
     model_adapter: str = "native"
-    model_name: str = ""
+    model_name: str = "gpt-5.4"
     model_api_key: str = ""
-    model_base_url: str = "https://api.openai.com/v1"
+    model_base_url: str = ""
     model_thinking: str = ""
     model_reasoning_effort: str = ""
     mcp_url: str = "http://127.0.0.1:8091/mcp"
@@ -39,9 +39,9 @@ class RuntimeSettings:
             mode=os.getenv("NINO_RUNTIME_MODE", "demo").lower(),
             engine=os.getenv("NINO_AGENT_ENGINE", "lightweight").lower(),
             model_adapter=os.getenv("NINO_MODEL_ADAPTER", "native").lower(),
-            model_name=os.getenv("NINO_MODEL_NAME", ""),
-            model_api_key=os.getenv("NINO_MODEL_API_KEY", ""),
-            model_base_url=os.getenv("NINO_MODEL_BASE_URL", "https://api.openai.com/v1"),
+            model_name="gpt-5.4",
+            model_api_key=os.getenv("OPENAI_API_KEY", ""),
+            model_base_url=os.getenv("INCERRY_OPENAI_BASE_URL", ""),
             model_thinking=os.getenv("NINO_MODEL_THINKING", "").lower(),
             model_reasoning_effort=os.getenv("NINO_MODEL_REASONING_EFFORT", "").lower(),
             mcp_url=fallback_mcp_url,

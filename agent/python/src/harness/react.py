@@ -19,6 +19,23 @@ from .skills import Skill, SkillConfigurationError, SkillRegistry
 
 
 DELEGATE_TOOL_NAME = "nino_runtime_delegate_agent"
+CLARIFICATION_TOOL_NAME = "nino_runtime_request_clarification"
+STRICT_WORKER_POLICY = (
+    "Strict completion policy: factual answers require a successful non-reference Tool "
+    "Observation. If required input is missing, call nino_runtime_request_clarification with one "
+    "concise question; never return clarification as plain assistant text."
+)
+
+
+def is_concise_clarification(answer: str) -> bool:
+    """Validate the bounded message submitted through the clarification Action."""
+
+    normalized = answer.strip()
+    markers = (
+        "?", "？", "请提供", "请补充", "需要提供", "需要补充", "缺少",
+        "please provide", "please specify", "need more", "missing",
+    )
+    return len(normalized) <= 500 and any(marker in normalized.lower() for marker in markers)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,9 +200,14 @@ class ReActHarness:
         messages = []
         if self._agent is not None:
             messages.append(Message(role="system", content=self._agent.instructions))
-        messages.extend((Message(role="system", content=skill.instructions), *history))
+        messages.extend((
+            Message(role="system", content=skill.instructions),
+            Message(role="system", content=STRICT_WORKER_POLICY),
+            *history,
+        ))
         messages.append(Message(role="user", content=user_input.strip()))
         invoked: set[str] = set()
+        successful_evidence_actions = 0
 
         try:
             # Each iteration is one Reason/Action/Observation turn, bounded by three budgets.
@@ -217,6 +239,17 @@ class ReActHarness:
                             "EMPTY_MODEL_RESPONSE",
                             "Model returned neither text nor tool calls.",
                             LoopStopReason.NO_PROGRESS,
+                        ))
+                    if successful_evidence_actions == 0:
+                        await emit(
+                            "policy_rejected", error_code="EVIDENCE_REQUIRED",
+                            policy="skill_observation_required",
+                        )
+                        return await fail(LoopViolation(
+                            "EVIDENCE_REQUIRED",
+                            "A Skill answer requires a successful tool Observation. Missing input "
+                            "must use nino_runtime_request_clarification.",
+                            LoopStopReason.POLICY_VIOLATION,
                         ))
                     loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
                     await checkpoint("terminal")
@@ -265,12 +298,27 @@ class ReActHarness:
                             )
                         except (OSError, ValueError) as exc:
                             result = ToolResult(str(exc), is_error=True)
+                    elif call.name == CLARIFICATION_TOOL_NAME:
+                        message = str(call.arguments.get("message", "")).strip()
+                        if not is_concise_clarification(message):
+                            result = ToolResult(
+                                "Clarification must be a concise request for missing input.",
+                                is_error=True,
+                            )
+                        else:
+                            result = ToolResult(message)
+                            await emit("clarification_requested", step=step, message=message)
                     elif call.name == DELEGATE_TOOL_NAME:
                         async with asyncio.timeout(loop.remaining_seconds):
                             result = await self._delegate(call, skill, emit, step, run_id)
                     else:
                         async with asyncio.timeout(loop.remaining_seconds):
                             result = await self._tools.invoke(call)
+                    if (
+                        not result.is_error
+                        and call.name not in {REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME}
+                    ):
+                        successful_evidence_actions += 1
                     content = result.content[: self._config.max_tool_result_chars]
                     await emit(
                         "tool_completed",
@@ -287,6 +335,18 @@ class ReActHarness:
                     await checkpoint("after_observation")
                     if violation is not None:
                         return await fail(violation)
+                    if call.name == CLARIFICATION_TOOL_NAME and not result.is_error:
+                        loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
+                        await checkpoint("terminal")
+                        await emit("run_completed", step=step, outcome="clarification")
+                        return RunResult(
+                            run_id=run_id,
+                            status=RunStatus.COMPLETED,
+                            answer=result.content,
+                            skill_id=skill.id,
+                            steps=step,
+                            events=tuple(events),
+                        )
         except TimeoutError:
             return await fail(LoopViolation(
                 "LOOP_TIMEOUT",
@@ -309,6 +369,19 @@ class ReActHarness:
             names = ", ".join(sorted(missing))
             raise OSError(f"Skill {skill.id} requires unavailable tools: {names}")
         internal: list[ToolDefinition] = []
+        internal.append(ToolDefinition(
+            CLARIFICATION_TOOL_NAME,
+            "Request missing user input. Use only when the selected Skill cannot proceed without "
+            "required parameters; provide one concise clarification question.",
+            {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "minLength": 1, "maxLength": 500},
+                },
+                "required": ["message"],
+                "additionalProperties": False,
+            },
+        ))
         if skill.references:
             internal.append(self._references.tool_definition(skill))
         if self._can_delegate():

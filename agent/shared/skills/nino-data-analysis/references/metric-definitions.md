@@ -8,4 +8,5 @@
 - Successful refunds include only rows where `refund_status = 2`.
 - Demo gross margin equals customer sales minus net supplier cost minus successful refunds.
 - The demo margin excludes tax, commission, payment fees, and foreign-exchange gains or losses.
-
+- Summary grand totals come from `nino_data_query_summary.data.totals`; do not calculate them by
+  adding `groups` in the model.

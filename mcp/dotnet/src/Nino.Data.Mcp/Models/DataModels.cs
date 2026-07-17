@@ -99,11 +99,20 @@ public sealed record DataSummaryGroup(
     decimal SuccessfulRefundAmount,
     decimal DemoGrossMargin);
 
+public sealed record DataSummaryTotals(
+    long OrderCount,
+    decimal CustomerSaleAmount,
+    decimal NetSupplierCost,
+    decimal PaidAmount,
+    decimal SuccessfulRefundAmount,
+    decimal DemoGrossMargin);
+
 public sealed record DataSummaryResult(
     DateOnly StartDate,
     DateOnly EndDate,
     string GroupBy,
     string Currency,
+    DataSummaryTotals Totals,
     IReadOnlyList<DataSummaryGroup> Groups);
 
 public sealed record DataAnomaly(
@@ -124,4 +133,3 @@ public sealed record DataAnomalyResult(
     string AnomalyType,
     string Currency,
     IReadOnlyList<DataAnomaly> Items);
-

@@ -9,10 +9,10 @@ ToolProvider、SQLite 多轮会话和 Loop Engineering。独立的 .NET MCP Serv
 ## 当前能力
 
 - FastAPI REST + SSE，不依赖 CLI 作为产品入口。
-- 业务无关的 `nino.orchestrator`，普通问题直接回答，任务问题动态选择 Agent + Skill。
+- 严格 Skill 白名单的 `nino.orchestrator`；越界请求在模型调用前固定拒绝，命中请求必须 dispatch。
 - lightweight 与 LangGraph 两种 Specialist ReAct Worker。
 - 原生 OpenAI-compatible 与 LangChain 模型 Adapter。
-- DeepSeek Tool Calling 和 thinking `reasoning_content` 回传。
+- OpenAI-compatible Tool Calling 和可选 `reasoning_content` 回传。
 - 多 MCP Server 发现、Tool 名称冲突检测、必需/可选服务故障隔离。
 - Agent + Skill 双重 Tool 白名单、Reference 按需加载和目录逃逸保护。
 - SQLite Conversation、Message、Run、Event、上下文摘要与 Loop checkpoint。
@@ -58,14 +58,22 @@ Framework 不引用 FastAPI、SQLite、httpx、LangChain、LangGraph 或 MCP SDK
 
 ```text
 Orchestration Loop
-  understand -> direct answer OR dispatch -> observe result -> reconcile -> finish/re-dispatch
+  scope gate -> reject OR dispatch -> observe result -> reconcile -> finish/re-dispatch
 
 Worker ReAct Loop
-  reason -> tool/reference action -> observation -> continue/final answer
+  reason -> tool/reference action -> observation -> evidence gate -> continue/final answer
 ```
 
 主模型只看到候选能力摘要和 `nino_runtime_dispatch_agent`，看不到业务 MCP Tools。选中的
 Specialist 才加载完整 Skill、References 和白名单内 MCP schema。
+
+严格边界由 Harness 执行：先应用 `excluded_intent_keywords`，再匹配 `intent_keywords`；未命中时不调用模型并产生
+`policy_rejected(OUT_OF_SCOPE)`；命中后主模型不得零 dispatch 直接回答；Worker 没有成功 Tool
+Observation 时只能返回不超过 500 字符且包含明确补充信息要求的澄清问题。父 Orchestrator 只有
+至少一个子 Agent 成功完成后才能生成最终答案。
+
+澄清不是自由文本例外：Worker 必须调用内部结构化 Action
+`nino_runtime_request_clarification`，Harness 校验后以 `clarification_requested` 事件完成。
 
 两个 Loop 共用稳定状态：
 
@@ -176,30 +184,21 @@ curl -s http://127.0.0.1:8090/health
 
 Demo 模式不调用真实模型或 MCP，适合验证 API、路由、Loop、持久化和事件。
 
-## DeepSeek Live
+## gpt-5.4 Live
 
-项目根目录 `.env`：
+Runtime 在代码中固定使用 `gpt-5.4`，不读取模型名称环境变量。本地启动前，让 Runtime 进程从
+系统环境读取以下配置：
 
-```dotenv
-NINO_RUNTIME_MODE=live
-NINO_AGENT_ENGINE=lightweight
-NINO_MODEL_ADAPTER=native
-NINO_MODEL_NAME=deepseek-v4-pro
-NINO_MODEL_API_KEY=<your-key>
-NINO_MODEL_BASE_URL=https://api.deepseek.com
-NINO_MODEL_THINKING=disabled
-NINO_MODEL_REASONING_EFFORT=
+```bash
+export OPENAI_API_KEY='<your-key>'
+export INCERRY_OPENAI_BASE_URL='http://core.dns-pro.net:13001/v1'
+export NINO_RUNTIME_MODE=live
+export NINO_AGENT_ENGINE=lightweight
+export NINO_MODEL_ADAPTER=native
 ```
 
-首次联调先关闭 thinking。Tool Calling 通过后再启用：
-
-```dotenv
-NINO_MODEL_THINKING=enabled
-NINO_MODEL_REASONING_EFFORT=high
-```
-
-完整配置和验收见 [DeepSeek 启动手册](./doc/deepseek-agent-runbook.md)。API Key 不能写入 Skill、
-README、Dockerfile 或版本库。
+`OPENAI_API_KEY` 不能写入 Skill、README、Dockerfile、`.env` 或版本库。完整启动和 ReAct Tool
+Calling 验收见 [gpt-5.4 启动手册](./doc/gpt-5.4-agent-runbook.md)。
 
 ## 测试
 
@@ -208,6 +207,19 @@ cd agent/python
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m compileall -q src tests
 ```
+
+真实模型、Skill、MCP 和 Loop Engineering 基准：
+
+```bash
+cd agent/python
+.venv/bin/python evals/live_benchmark.py \
+  --tag smoke \
+  --output ../../nino-agent-storage/live-benchmark.json
+```
+
+题集、评分维度和单题执行方式见 [Live Agent Benchmark](./agent/python/evals/README.md)。
+标准题库蒸馏、版本和多语言复用规范见
+[Skill 标准题库设计](./doc/skill-question-bank-design.md)。
 
 验收不仅检查最终文本，还必须检查：
 
@@ -229,4 +241,5 @@ orchestration loop checkpoint
 - [Runtime 调用链与多 MCP](./doc/agent-runtime-call-chain.md)
 - [Python Runtime API](./doc/python-agent-runtime-api.md)
 - [多语言分层规范](./doc/multi-language-agent-architecture.md)
-- [DeepSeek 启动与验收](./doc/deepseek-agent-runbook.md)
+- [Skill 标准题库设计](./doc/skill-question-bank-design.md)
+- [gpt-5.4 启动与验收](./doc/gpt-5.4-agent-runbook.md)

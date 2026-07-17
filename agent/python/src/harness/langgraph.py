@@ -13,7 +13,10 @@ from framework import (
 )
 from .agents import AgentDefinition, AgentRegistry
 from .loop import LoopController, LoopViolation, stop_reason_for_error, strictest_budget
-from .react import DELEGATE_TOOL_NAME, HarnessConfig
+from .react import (
+    CLARIFICATION_TOOL_NAME, DELEGATE_TOOL_NAME, STRICT_WORKER_POLICY,
+    HarnessConfig, is_concise_clarification,
+)
 from .references import REFERENCE_TOOL_NAME, ReferenceProvider
 from .skills import Skill, SkillConfigurationError, SkillRegistry
 
@@ -26,6 +29,7 @@ class _GraphState(TypedDict):
     answer: str
     error_code: str | None
     error_message: str
+    successful_evidence_actions: int
 
 
 class LangGraphReActHarness:
@@ -135,6 +139,7 @@ class LangGraphReActHarness:
                 "messages": (
                     *system_messages,
                     Message(role="system", content=skill.instructions),
+                    Message(role="system", content=STRICT_WORKER_POLICY),
                     *history,
                     Message(role="user", content=user_input.strip()),
                 ),
@@ -144,6 +149,7 @@ class LangGraphReActHarness:
                 "answer": "",
                 "error_code": None,
                 "error_message": "",
+                "successful_evidence_actions": 0,
             }
             async with asyncio.timeout(loop.remaining_seconds):
                 state = await graph.ainvoke(
@@ -224,6 +230,19 @@ class LangGraphReActHarness:
                         "error_code": "EMPTY_MODEL_RESPONSE",
                         "error_message": "Model returned neither text nor tool calls.",
                     }
+                if state["successful_evidence_actions"] == 0:
+                    await emit(
+                        "policy_rejected", error_code="EVIDENCE_REQUIRED",
+                        policy="skill_observation_required",
+                    )
+                    return {
+                        "step": step,
+                        "error_code": "EVIDENCE_REQUIRED",
+                        "error_message": (
+                            "A Skill answer requires a successful tool Observation. Missing input "
+                            "must use nino_runtime_request_clarification."
+                        ),
+                    }
                 return {"step": step, "answer": answer, "calls": ()}
             return {
                 "step": step,
@@ -239,6 +258,7 @@ class LangGraphReActHarness:
         async def tool_node(state: _GraphState) -> dict[str, Any]:
             messages = list(state["messages"])
             invoked = set(state["invoked"])
+            successful_evidence_actions = state["successful_evidence_actions"]
             allowed_names = {tool.name for tool in available}
             for call in state["calls"]:
                 if call.name not in allowed_names:
@@ -269,10 +289,27 @@ class LangGraphReActHarness:
                         )
                     except (OSError, ValueError) as exc:
                         result = ToolResult(str(exc), is_error=True)
+                elif call.name == CLARIFICATION_TOOL_NAME:
+                    message = str(call.arguments.get("message", "")).strip()
+                    if not is_concise_clarification(message):
+                        result = ToolResult(
+                            "Clarification must be a concise request for missing input.",
+                            is_error=True,
+                        )
+                    else:
+                        result = ToolResult(message)
+                        await emit(
+                            "clarification_requested", step=state["step"], message=message,
+                        )
                 elif call.name == DELEGATE_TOOL_NAME:
                     result = await self._delegate(call, emit, state["step"], run_id)
                 else:
                     result = await self._tools.invoke(call)
+                if (
+                    not result.is_error
+                    and call.name not in {REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME}
+                ):
+                    successful_evidence_actions += 1
                 content = result.content[: self._config.max_tool_result_chars]
                 await emit(
                     "tool_completed", step=state["step"], tool=call.name,
@@ -290,19 +327,37 @@ class LangGraphReActHarness:
                         "error_code": violation.error_code,
                         "error_message": violation.message,
                     }
-            return {"messages": tuple(messages), "invoked": frozenset(invoked), "calls": ()}
+                if call.name == CLARIFICATION_TOOL_NAME and not result.is_error:
+                    return {
+                        "messages": tuple(messages),
+                        "invoked": frozenset(invoked),
+                        "calls": (),
+                        "answer": result.content,
+                        "successful_evidence_actions": successful_evidence_actions,
+                    }
+            return {
+                "messages": tuple(messages),
+                "invoked": frozenset(invoked),
+                "calls": (),
+                "successful_evidence_actions": successful_evidence_actions,
+            }
 
         def after_model(state: _GraphState) -> str:
             if state["error_code"] or state["answer"]:
                 return END
             return "tools"
 
+        def after_tools(state: _GraphState) -> str:
+            if state["error_code"] or state["answer"]:
+                return END
+            return "model"
+
         builder = StateGraph(_GraphState)
         builder.add_node("model", model_node)
         builder.add_node("tools", tool_node)
         builder.add_edge(START, "model")
         builder.add_conditional_edges("model", after_model)
-        builder.add_edge("tools", "model")
+        builder.add_conditional_edges("tools", after_tools)
         return builder.compile()
 
     async def _allowed_tools(self, skill: Skill) -> tuple[ToolDefinition, ...]:
@@ -315,6 +370,19 @@ class LangGraphReActHarness:
         if missing:
             raise OSError(f"Skill {skill.id} requires unavailable tools: {', '.join(sorted(missing))}")
         internal: list[ToolDefinition] = []
+        internal.append(ToolDefinition(
+            CLARIFICATION_TOOL_NAME,
+            "Request missing user input. Use only when the selected Skill cannot proceed without "
+            "required parameters; provide one concise clarification question.",
+            {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "minLength": 1, "maxLength": 500},
+                },
+                "required": ["message"],
+                "additionalProperties": False,
+            },
+        ))
         if skill.references:
             internal.append(self._references.tool_definition(skill))
         if self._can_delegate():

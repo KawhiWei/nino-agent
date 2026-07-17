@@ -128,7 +128,15 @@ public sealed partial class DataQueryService(NpgsqlDataSource dataSource) : IDat
                 reader.GetDecimal(6)));
         }
 
-        return new DataSummaryResult(startDate, endDate, groupBy, "CNY", groups);
+        var totals = new DataSummaryTotals(
+            groups.Sum(group => group.OrderCount),
+            groups.Sum(group => group.CustomerSaleAmount),
+            groups.Sum(group => group.NetSupplierCost),
+            groups.Sum(group => group.PaidAmount),
+            groups.Sum(group => group.SuccessfulRefundAmount),
+            groups.Sum(group => group.DemoGrossMargin));
+
+        return new DataSummaryResult(startDate, endDate, groupBy, "CNY", totals, groups);
     }
 
     public async Task<DataAnomalyResult> FindAnomaliesAsync(
@@ -417,4 +425,3 @@ public sealed partial class DataQueryService(NpgsqlDataSource dataSource) : IDat
     [GeneratedRegex("^[A-Za-z0-9._-]+$", RegexOptions.CultureInvariant)]
     private static partial Regex OrderSerialIdPattern();
 }
-

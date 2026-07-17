@@ -126,7 +126,7 @@ OpenAPI:
 - OpenAPI JSON: `http://127.0.0.1:8090/openapi.json`
 - Health: `http://127.0.0.1:8090/health`
 
-DeepSeek live setup and Tool Calling acceptance: [DeepSeek Agent Runbook](../../doc/deepseek-agent-runbook.md).
+gpt-5.4 live setup and Tool Calling acceptance: [gpt-5.4 Agent Runbook](../../doc/gpt-5.4-agent-runbook.md).
 Generic control-plane routing and extension rules: [Generic Orchestrator Design](../../doc/generic-orchestrator-design.md).
 
 ## API Flow
@@ -196,10 +196,10 @@ The API contract does not change when the engine or model adapter changes.
 | `NINO_RUNTIME_MODE` | `demo`, `live` | `demo` is deterministic and does not call external services. |
 | `NINO_AGENT_ENGINE` | `lightweight`, `langgraph` | Select the ReAct loop implementation. |
 | `NINO_MODEL_ADAPTER` | `native`, `langchain` | Select direct OpenAI-compatible HTTP or LangChain. |
-| `NINO_MODEL_NAME` | provider model id | Required in `live` mode. |
-| `NINO_MODEL_API_KEY` | secret | Required in `live` mode; never commit it. |
-| `NINO_MODEL_BASE_URL` | OpenAI-compatible `/v1` URL | Works with OpenAI and compatible gateways. |
-| `NINO_MODEL_THINKING` | empty, `enabled`, `disabled` | Optional DeepSeek-compatible thinking control. |
+| model | fixed `gpt-5.4` | Hardcoded in `bootstrap.py`; there is no model-name environment variable. |
+| `OPENAI_API_KEY` | secret | Required in `live` mode; read from the process environment only. |
+| `INCERRY_OPENAI_BASE_URL` | OpenAI-compatible `/v1` URL | Required in `live` mode. |
+| `NINO_MODEL_THINKING` | empty, `enabled`, `disabled` | Optional compatible-gateway thinking control. |
 | `NINO_MODEL_REASONING_EFFORT` | empty, `high`, `max` | Optional thinking effort. |
 | `NINO_MCP_URL` | MCP endpoint | Defaults to `http://127.0.0.1:8091/mcp`. |
 | `NINO_MCP_SERVERS` | JSON server array | Multi-MCP catalog; empty keeps the single-URL fallback. |
@@ -220,11 +220,13 @@ Recommended first live configuration uses the smallest dependency surface:
 export NINO_RUNTIME_MODE=live
 export NINO_AGENT_ENGINE=lightweight
 export NINO_MODEL_ADAPTER=native
-export NINO_MODEL_NAME=your-model-id
-export NINO_MODEL_API_KEY=your-api-key
-export NINO_MODEL_BASE_URL=https://your-provider.example/v1
+export OPENAI_API_KEY='<your-key>'
+export INCERRY_OPENAI_BASE_URL='http://core.dns-pro.net:13001/v1'
 export NINO_MCP_URL=http://127.0.0.1:8091/mcp
 ```
+
+The Runtime ignores `NINO_MODEL_NAME`, `NINO_MODEL_API_KEY`, `NINO_MODEL_BASE_URL`,
+`OPENAI_MODEL`, and `OPENAI_BASE_URL`. Do not place the API key in project files.
 
 Multiple MCP servers:
 
@@ -314,13 +316,16 @@ Skill references are declared in `skill.json` and loaded only through
 enforces directory containment, file existence, a character budget, and emits
 `reference_loaded` with the document SHA256.
 
-The primary `nino.orchestrator` is business-neutral. It answers ordinary questions directly and sees
-only a dynamic catalog of compatible specialist Agent + Skill pairs. Task work uses the internal
+The primary `nino.orchestrator` is business-neutral and strict-scope. Input that does not match a
+registered Skill is rejected before a model call. Matched work must use the internal
 `nino_runtime_dispatch_agent(agent_id, skill_id, task, context)` tool. The selected specialist receives
 a fresh context, loads the chosen Skill and References, and alone receives its approved MCP tools.
 Child model/reference/tool events are folded into the parent Run with `parent_run_id`, `child_run_id`,
-`agent_id`, and `skill_id`. The demo phrase `复杂统计 2026 年 7 月毛利并核对结论` exercises analyst
-followed by verifier; a general question exercises the no-dispatch path.
+`agent_id`, and `skill_id`. A Worker may produce a factual final answer only after a successful Tool
+Observation; missing input must use the validated `nino_runtime_request_clarification` Action rather
+than plain assistant text. The demo phrase
+`复杂统计 2026 年 7 月毛利并核对结论` exercises analyst followed by verifier; a general question
+exercises deterministic `OUT_OF_SCOPE` rejection without calling the model.
 
 ## Tests
 

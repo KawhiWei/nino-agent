@@ -23,12 +23,14 @@ class OpenAICompatibleChatModel:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         if not model.strip():
-            raise ValueError("NINO_MODEL_NAME is required.")
+            raise ValueError("A model name is required.")
         if not api_key.strip():
-            raise ValueError("NINO_MODEL_API_KEY is required.")
+            raise ValueError("OPENAI_API_KEY is required.")
+        if not base_url.strip():
+            raise ValueError("INCERRY_OPENAI_BASE_URL is required.")
         self._model = model.strip()
         self._api_key = api_key.strip()
-        self._endpoint = f"{base_url.rstrip('/')}/chat/completions"
+        self._endpoint = f"{base_url.strip().rstrip('/')}/chat/completions"
         if thinking_mode not in {"", "enabled", "disabled"}:
             raise ValueError("NINO_MODEL_THINKING must be enabled, disabled, or empty.")
         self._thinking_mode = thinking_mode

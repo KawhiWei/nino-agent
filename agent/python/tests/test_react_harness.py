@@ -10,6 +10,7 @@ from framework import (
     Message, ModelTurn, RunStatus, ToolCall, ToolDefinition, ToolResult,
 )
 from harness import HarnessConfig, ReActHarness, Skill, SkillRegistry
+from harness.react import CLARIFICATION_TOOL_NAME
 
 
 TOOLS = (
@@ -90,6 +91,31 @@ class ReActHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(RunStatus.FAILED, result.status)
         self.assertEqual("TOOL_NOT_ALLOWED", result.error_code)
 
+    async def test_blocks_factual_answer_without_tool_observation(self) -> None:
+        result = await ReActHarness(
+            QueueModel(ModelTurn(text="The order margin is 60.")),
+            FakeTools(),
+            registry(),
+        ).run("查询订单")
+
+        self.assertEqual(RunStatus.FAILED, result.status)
+        self.assertEqual("EVIDENCE_REQUIRED", result.error_code)
+        self.assertIn("policy_rejected", [event.type for event in result.events])
+
+    async def test_allows_concise_clarification_without_tool_observation(self) -> None:
+        result = await ReActHarness(
+            QueueModel(ModelTurn(tool_calls=(ToolCall(
+                "clarify-1", CLARIFICATION_TOOL_NAME,
+                {"message": "请提供需要查询的订单号"},
+            ),))),
+            FakeTools(),
+            registry(),
+        ).run("查询订单")
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        self.assertEqual("请提供需要查询的订单号", result.answer)
+        self.assertIn("clarification_requested", [event.type for event in result.events])
+
     async def test_blocks_duplicate_tool_call(self) -> None:
         repeated = ToolCall("call-1", "allowed_tool", {"id": "1"})
         model = QueueModel(
@@ -139,6 +165,7 @@ class SkillRegistryTests(unittest.TestCase):
                 "description": "Nino Data test",
                 "instructions": "SKILL.md",
                 "intent_keywords": ["订单"],
+                "excluded_intent_keywords": ["创建订单"],
                 "allowed_tools": ["allowed_tool"],
                 "max_steps": 5,
                 "is_default": True,
@@ -151,6 +178,11 @@ class SkillRegistryTests(unittest.TestCase):
             self.assertEqual("Nino Data", skill.name)
             self.assertEqual("Test analysis role.", skill.description)
             self.assertEqual("Use approved tools.", skill.instructions)
+            self.assertEqual((skill,), loaded.matches("查询订单"))
+            self.assertEqual((), loaded.matches("创建订单"))
+            self.assertEqual((), loaded.matches("write a poem"))
+            with self.assertRaisesRegex(Exception, "No registered skill matched"):
+                loaded.route("write a poem")
 
     def test_rejects_reference_path_outside_skill_directory(self) -> None:
         with tempfile.TemporaryDirectory() as root:

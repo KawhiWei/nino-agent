@@ -136,8 +136,9 @@ src/
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Orchestrate
-    Orchestrate --> Answer: 普通问答
+    [*] --> ScopeGate
+    ScopeGate --> Reject: 未命中 Skill
+    ScopeGate --> Orchestrate: 命中 Skill
     Orchestrate --> Dispatch: 选择 Agent + Skill
     Dispatch --> WorkerModel
     WorkerModel --> WorkerAnswer: 无 Tool Call
@@ -145,7 +146,7 @@ stateDiagram-v2
     Observe --> WorkerModel
     WorkerAnswer --> Reconcile
     Reconcile --> Orchestrate
-    Answer --> [*]
+    Reject --> [*]
 ```
 
 关键点：
@@ -169,7 +170,7 @@ stateDiagram-v2
 
 当前 Agent：
 
-- `nino.orchestrator`：业务无关唯一入口，普通问题直接回答，任务工作动态选择能力。
+- `nino.orchestrator`：业务无关唯一入口，未命中 Skill 固定拒绝，命中后必须动态派发能力。
 - `nino-data.analyst`：执行复杂多步分析，不负责最终核验。
 - `nino-data.verifier`：重新核对参数、口径和 Tool 结果，不把 Analyst 文本当作事实。
 
@@ -269,9 +270,9 @@ NINO_AGENT_ENGINE=lightweight
 NINO_RUNTIME_MODE=live
 NINO_AGENT_ENGINE=lightweight
 NINO_MODEL_ADAPTER=native
-NINO_MODEL_NAME=<model-id>
-NINO_MODEL_API_KEY=<secret>
-NINO_MODEL_BASE_URL=<openai-compatible-v1-url>
+# Runtime 固定使用 gpt-5.4
+OPENAI_API_KEY=<secret-from-process-environment>
+INCERRY_OPENAI_BASE_URL=http://core.dns-pro.net:13001/v1
 NINO_MCP_URL=http://127.0.0.1:8091/mcp
 NINO_MCP_SERVERS=
 ```

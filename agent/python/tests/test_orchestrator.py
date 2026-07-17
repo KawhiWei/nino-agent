@@ -26,8 +26,9 @@ class QueueModel:
 
 
 class FakeWorker:
-    def __init__(self) -> None:
+    def __init__(self, status: RunStatus = RunStatus.COMPLETED) -> None:
         self.calls: list[tuple[str, str | None]] = []
+        self.status = status
 
     async def run(
         self, task: str, *, run_id: str, selected_skill_id: str | None = None,
@@ -35,8 +36,8 @@ class FakeWorker:
     ) -> RunResult:
         self.calls.append((task, selected_skill_id))
         return RunResult(
-            run_id, RunStatus.COMPLETED, "specialist evidence", selected_skill_id,
-            1, (),
+            run_id, self.status, "specialist evidence", selected_skill_id,
+            1, (), "CHILD_FAILED" if self.status == RunStatus.FAILED else None,
         )
 
 
@@ -45,8 +46,8 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.skills = SkillRegistry.load(SHARED / "skills")
         self.agents = AgentRegistry.load(SHARED / "agents")
 
-    async def test_answers_general_question_without_dispatch(self) -> None:
-        model = QueueModel(ModelTurn(text="A general answer"))
+    async def test_rejects_general_question_before_model_call(self) -> None:
+        model = QueueModel()
         worker = FakeWorker()
 
         result = await OrchestratorHarness(
@@ -54,10 +55,55 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         ).run("Explain what an API is")
 
         self.assertEqual(RunStatus.COMPLETED, result.status)
-        self.assertEqual("A general answer", result.answer)
+        self.assertIn("不在已注册 Skill", result.answer)
         self.assertEqual([], worker.calls)
+        self.assertEqual([], model.messages)
         self.assertNotIn("agent_started", [event.type for event in result.events])
-        self.assertIn("nino-data.analysis", model.messages[0][1].content)
+        self.assertIn("policy_rejected", [event.type for event in result.events])
+
+    async def test_rejects_direct_answer_for_matched_skill(self) -> None:
+        result = await OrchestratorHarness(
+            QueueModel(ModelTurn(text="Unsupported direct answer")),
+            self.skills,
+            self.agents,
+            lambda _: FakeWorker(),
+        ).run("Query order DEMO-202607-001")
+
+        self.assertEqual(RunStatus.FAILED, result.status)
+        self.assertEqual("DISPATCH_REQUIRED", result.error_code)
+        self.assertIn("policy_rejected", [event.type for event in result.events])
+
+    async def test_excluded_write_intent_is_rejected_before_model_call(self) -> None:
+        model = QueueModel()
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: FakeWorker()
+        ).run("请创建订单并写入数据库")
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        self.assertIn("不在已注册 Skill", result.answer)
+        self.assertEqual([], model.messages)
+        rejected = [event for event in result.events if event.type == "policy_rejected"]
+        self.assertEqual("OUT_OF_SCOPE", rejected[0].data["error_code"])
+
+    async def test_rejects_final_answer_when_all_dispatches_failed(self) -> None:
+        worker = FakeWorker(RunStatus.FAILED)
+        model = QueueModel(
+            ModelTurn(tool_calls=(ToolCall(
+                "dispatch-1", "nino_runtime_dispatch_agent", {
+                    "agent_id": "nino-data.analyst",
+                    "skill_id": "nino-data.analysis",
+                    "task": "Query one order",
+                }
+            ),)),
+            ModelTurn(text="I will answer despite the failed child."),
+        )
+
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: worker
+        ).run("Query order DEMO-202607-001")
+
+        self.assertEqual(RunStatus.FAILED, result.status)
+        self.assertEqual("SUCCESSFUL_DISPATCH_REQUIRED", result.error_code)
 
     async def test_dispatches_dynamic_agent_and_skill_pair(self) -> None:
         model = QueueModel(
@@ -93,7 +139,7 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
 
         result = await OrchestratorHarness(
             model, self.skills, self.agents, lambda _: FakeWorker()
-        ).run("Do something")
+        ).run("Query order DEMO-202607-001")
 
         self.assertEqual(RunStatus.FAILED, result.status)
         self.assertEqual("DISPATCH_NOT_ALLOWED", result.error_code)
