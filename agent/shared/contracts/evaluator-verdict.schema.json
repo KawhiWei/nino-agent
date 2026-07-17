@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nino-agent.local/schemas/evaluator-verdict.schema.json",
+  "title": "Nino Evaluator Verdict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "evidence_level", "checked_requirements", "failed_requirements", "concerns"],
+  "properties": {
+    "verdict": { "enum": ["passed", "failed", "blocked", "needs_context"] },
+    "evidence_level": { "enum": ["proved", "observed", "unproven"] },
+    "checked_requirements": { "type": "array", "items": { "type": "string" } },
+    "failed_requirements": { "type": "array", "items": { "type": "string" } },
+    "concerns": { "type": "array", "items": { "type": "string" } }
+  }
+}

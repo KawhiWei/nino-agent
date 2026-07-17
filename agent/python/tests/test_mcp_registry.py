@@ -12,11 +12,15 @@ from infrastructure.mcp import (
 
 
 class FakeProvider:
-    def __init__(self, *tools: str, error: Exception | None = None) -> None:
+    def __init__(
+        self, *tools: str, error: Exception | None = None,
+        invoke_error: Exception | None = None,
+    ) -> None:
         self._tools = tuple(
             ToolDefinition(name, f"Tool {name}", {"type": "object"}) for name in tools
         )
         self._error = error
+        self._invoke_error = invoke_error
         self.calls: list[ToolCall] = []
         self.closed = False
 
@@ -27,6 +31,8 @@ class FakeProvider:
 
     async def invoke(self, call: ToolCall) -> ToolResult:
         self.calls.append(call)
+        if self._invoke_error is not None:
+            raise self._invoke_error
         return ToolResult(f"result:{call.name}")
 
     async def close(self) -> None:
@@ -112,6 +118,27 @@ class McpServerRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(OSError, "Required MCP server discovery failed"):
             await registry.list_tools()
+
+    async def test_opens_circuit_after_configured_tool_failures(self) -> None:
+        provider = FakeProvider("unstable", invoke_error=OSError("offline"))
+        registry = McpServerRegistry(
+            (McpServerConfig(
+                "unstable", "http://unstable/mcp",
+                failure_threshold=2, circuit_break_seconds=60,
+            ),),
+            {"unstable": provider},
+        )
+        await registry.list_tools()
+
+        with self.assertRaises(OSError):
+            await registry.invoke(ToolCall("one", "unstable", {}))
+        with self.assertRaises(OSError):
+            await registry.invoke(ToolCall("two", "unstable", {}))
+        self.assertEqual("circuit_open", registry.statuses[0].state)
+        self.assertEqual(2, registry.statuses[0].consecutive_failures)
+        with self.assertRaisesRegex(OSError, "circuit is open"):
+            await registry.invoke(ToolCall("three", "unstable", {}))
+        self.assertEqual(2, len(provider.calls))
 
 
 if __name__ == "__main__":

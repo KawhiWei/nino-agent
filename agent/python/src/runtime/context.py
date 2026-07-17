@@ -78,6 +78,8 @@ class ConversationContextManager:
     ) -> None:
         self._config = config or ContextWindowConfig()
         self._tokens = token_counter or ApproximateTokenCounter()
+        self._algorithm_version = "extractive-v1"
+        self._token_counter_id = "approximate-v1"
 
     async def build(
         self,
@@ -87,7 +89,11 @@ class ConversationContextManager:
     ) -> ContextWindow:
         usable = tuple(item for item in messages if item.role in {"user", "assistant"})
         persisted = await repository.get_context(conversation_id)
-        if persisted is not None:
+        if (
+            persisted is not None
+            and persisted.algorithm_version == self._algorithm_version
+            and persisted.token_counter == self._token_counter_id
+        ):
             cursor = next(
                 (
                     index
@@ -123,6 +129,8 @@ class ConversationContextManager:
             compacted_message_count=len(older),
             original_tokens=sum(self._message_tokens(item) for item in older),
             updated_at=utc_now(),
+            algorithm_version=self._algorithm_version,
+            token_counter=self._token_counter_id,
         )
         await repository.upsert_context(context)
         context_message = self._summary_message(summary)
@@ -177,6 +185,8 @@ class ConversationContextManager:
                 + sum(self._message_tokens(item) for item in newly_compacted)
             ),
             updated_at=utc_now(),
+            algorithm_version=self._algorithm_version,
+            token_counter=self._token_counter_id,
         )
         await repository.upsert_context(context)
         return ContextWindow(

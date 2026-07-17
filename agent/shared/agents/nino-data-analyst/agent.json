@@ -2,6 +2,7 @@
   "$schema": "../../contracts/agent.schema.json",
   "id": "nino-data.analyst",
   "mode": "specialist",
+  "role": "worker",
   "instructions": "AGENT.md",
   "capabilities": ["data-analysis", "order-query", "aggregate-statistics", "report-analysis"],
   "allowed_skills": ["nino-data.analysis"],

@@ -245,7 +245,7 @@ Agent 评测还应比较：日期范围、分组、币种、指标版本、MCP `
 | `GET` | `/api/v1/runs/{id}/events` |
 | `GET` | `/api/v1/runs/{id}/events/stream` |
 
-App、Web、Desktop 当前都可以使用这套接口。ACP 尚未实现，因此不能把 ACP 写成当前前端接入方式。后续 ACP Adapter 应复用 `AgentRuntimeService`，不复制 ReAct Harness。
+App、Web、Desktop 使用 REST + SSE；ACP 不在当前产品范围。
 
 ### 9.1 持久化追问和动态压缩
 
@@ -329,7 +329,7 @@ python3 -m venv .venv
 - [x] Python Runtime 自动化测试。
 - [x] .NET MCP 自动化测试。
 - [ ] 真实模型基准答案与 golden SQL 自动对比。
-- [ ] ACP Adapter 和 ACP contract tests。
+- [ ] REST/SSE 客户端 contract tests。
 - [ ] 最小 Web 客户端。
 - [ ] 远程多实例 Repository（MVP 暂不需要）。
 
@@ -341,6 +341,6 @@ python3 -m venv .venv
 2. 保存每次 Tool 参数、MCP `QueryId`、指标版本和最终数字。
 3. 与 `verification.sql` 和固定断言逐项比较。
 4. 增加至少 10 个 Agent eval cases，包含正常、缺参、非法日期、越权 Tool、Reference 路由和委派。
-5. 评测稳定后再实现 ACP Adapter 和 Web。
+5. 评测稳定后实现基于 REST + SSE 的 Web。
 
 当前不引入 OpenTelemetry、Redis、队列、对象存储、Kubernetes、长期记忆或自由协作的多 Agent 框架。

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from version import __version__
-from harness import AgentRegistry, SkillRegistry
+from harness import AgentRegistry, SkillRegistry, lint_task_graph
 from runtime import (
     AgentRuntimeService, ContextWindowConfig, ConversationContextManager,
     ResourceNotFoundError, RunConflictError,
@@ -39,6 +39,11 @@ from .schemas import (
     RunAcceptedResponse,
     RunResponse,
     SkillResponse,
+    TaskGraphResponse,
+    HarnessLintResponse,
+    TaskNodeResponse,
+    TaskGateResponse,
+    NodeAttemptResponse,
 )
 
 
@@ -132,16 +137,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await container.service.start()
         try:
             yield
         finally:
+            await container.service.shutdown()
             if container.mcp_registry is not None:
                 await container.mcp_registry.close()
 
     app = FastAPI(
         title="Nino Agent Runtime API",
         version=__version__,
-        description="API-first Python ReAct runtime for App, Web, Desktop, and future ACP adapters.",
+        description="API-first Python enterprise ReAct Harness for App, Web, and Desktop.",
         lifespan=lifespan,
     )
     app.state.container = container
@@ -201,6 +208,11 @@ def create_app(
                 max_steps=skill.max_steps,
                 capabilities=list(skill.capabilities),
                 risk_level=skill.risk_level,
+                required_evaluators=list(skill.required_evaluators),
+                semantic_routing=skill.semantic_routing,
+                workflow_id=skill.workflow_id,
+                workflow_execution_shape=skill.workflow_execution_shape,
+                assurance_mode=skill.assurance_mode,
                 loop=LoopBudgetResponse(
                     max_actions=skill.loop_budget.max_actions,
                     timeout_seconds=skill.loop_budget.timeout_seconds,
@@ -219,6 +231,8 @@ def create_app(
                 name=agent.name,
                 description=agent.description,
                 mode=agent.mode,
+                role=agent.role,
+                evaluator_kind=agent.evaluator_kind,
                 allowed_skills=sorted(agent.allowed_skills),
                 allowed_tools=sorted(agent.allowed_tools),
                 allowed_delegates=sorted(agent.allowed_delegates),
@@ -251,6 +265,7 @@ def create_app(
             state=item.state,
             tool_count=item.tool_count,
             error=item.error,
+            consecutive_failures=item.consecutive_failures,
         ) for item in registry.statuses]
 
     @app.post(
@@ -268,9 +283,15 @@ def create_app(
         response_model=list[ConversationResponse],
         tags=["conversations"],
     )
-    async def list_conversations() -> list[ConversationResponse]:
+    async def list_conversations(
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> list[ConversationResponse]:
         conversations = await container.service.list_conversations()
-        return [ConversationResponse.model_validate(item) for item in conversations]
+        return [
+            ConversationResponse.model_validate(item)
+            for item in conversations[offset:offset + limit]
+        ]
 
     @app.get(
         "/api/v1/conversations/{conversation_id}",
@@ -304,9 +325,13 @@ def create_app(
         response_model=list[RunResponse],
         tags=["runs"],
     )
-    async def list_conversation_runs(conversation_id: str) -> list[RunResponse]:
+    async def list_conversation_runs(
+        conversation_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> list[RunResponse]:
         runs = await container.service.list_runs(conversation_id)
-        return [_run_payload(run) for run in runs]
+        return [_run_payload(run) for run in runs[offset:offset + limit]]
 
     @app.post(
         "/api/v1/conversations/{conversation_id}/messages",
@@ -323,6 +348,59 @@ def create_app(
     @app.get("/api/v1/runs/{run_id}", response_model=RunResponse, tags=["runs"])
     async def get_run(run_id: str) -> RunResponse:
         return _run_payload(await container.service.get_run(run_id))
+
+    @app.get(
+        "/api/v1/runs/{run_id}/task-graph",
+        response_model=TaskGraphResponse,
+        tags=["harness"],
+    )
+    async def get_run_task_graph(run_id: str) -> TaskGraphResponse:
+        snapshot = await container.service.get_task_graph(run_id)
+        return TaskGraphResponse.model_validate({
+            "graph": snapshot.graph,
+            "nodes": list(snapshot.nodes),
+            "gates": list(snapshot.gates),
+            "attempts": list(snapshot.attempts),
+        })
+
+    @app.get(
+        "/api/v1/runs/{run_id}/task-graph/lint",
+        response_model=HarnessLintResponse,
+        tags=["harness"],
+    )
+    async def lint_run_task_graph(run_id: str) -> HarnessLintResponse:
+        issues = lint_task_graph(await container.service.get_task_graph(run_id))
+        return HarnessLintResponse.model_validate({
+            "valid": not issues,
+            "issues": [
+                {"code": item.code, "message": item.message, "node_id": item.node_id}
+                for item in issues
+            ],
+        })
+
+    @app.get(
+        "/api/v1/runs/{run_id}/task-graph/nodes",
+        response_model=list[TaskNodeResponse], tags=["harness"],
+    )
+    async def list_run_task_nodes(run_id: str) -> list[TaskNodeResponse]:
+        snapshot = await container.service.get_task_graph(run_id)
+        return [TaskNodeResponse.model_validate(item) for item in snapshot.nodes]
+
+    @app.get(
+        "/api/v1/runs/{run_id}/task-graph/gates",
+        response_model=list[TaskGateResponse], tags=["harness"],
+    )
+    async def list_run_task_gates(run_id: str) -> list[TaskGateResponse]:
+        snapshot = await container.service.get_task_graph(run_id)
+        return [TaskGateResponse.model_validate(item) for item in snapshot.gates]
+
+    @app.get(
+        "/api/v1/runs/{run_id}/task-graph/attempts",
+        response_model=list[NodeAttemptResponse], tags=["harness"],
+    )
+    async def list_run_node_attempts(run_id: str) -> list[NodeAttemptResponse]:
+        snapshot = await container.service.get_task_graph(run_id)
+        return [NodeAttemptResponse.model_validate(item) for item in snapshot.attempts]
 
     @app.post("/api/v1/runs/{run_id}/cancel", response_model=RunResponse, tags=["runs"])
     async def cancel_run(run_id: str) -> RunResponse:

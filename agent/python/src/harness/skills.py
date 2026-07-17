@@ -37,6 +37,11 @@ class Skill:
     is_default: bool = False
     capabilities: tuple[str, ...] = ()
     risk_level: str = "read-only"
+    required_evaluators: tuple[str, ...] = ()
+    semantic_routing: bool = False
+    workflow_id: str = "adaptive"
+    workflow_execution_shape: str = "adaptive"
+    assurance_mode: str = "best_effort"
     loop_budget: LoopBudget = LoopBudget()
 
 
@@ -93,6 +98,29 @@ class SkillRegistry:
             loop_budget = LoopBudget(**loop_config)
         except (TypeError, ValueError) as exc:
             raise SkillConfigurationError(f"Skill loop budget is invalid: {exc}") from exc
+        assurance = manifest.get("assurance", {})
+        if not isinstance(assurance, Mapping):
+            raise SkillConfigurationError("Skill assurance must be an object.")
+        required_evaluators = tuple(
+            str(item) for item in assurance.get("required_evaluators", ())
+        )
+        if any(item not in {"verification", "review", "critique"} for item in required_evaluators):
+            raise SkillConfigurationError("Skill evaluators must be verification, review, or critique.")
+        if len(set(required_evaluators)) != len(required_evaluators):
+            raise SkillConfigurationError("Skill evaluators must be unique.")
+        assurance_mode = str(assurance.get("mode", "best_effort"))
+        if assurance_mode not in {"best_effort", "strict_verify"}:
+            raise SkillConfigurationError("Skill assurance mode must be best_effort or strict_verify.")
+        routing = manifest.get("routing", {})
+        if not isinstance(routing, Mapping):
+            raise SkillConfigurationError("Skill routing must be an object.")
+        workflow = manifest.get("workflow", {})
+        if not isinstance(workflow, Mapping):
+            raise SkillConfigurationError("Skill workflow must be an object.")
+        workflow_id = str(workflow.get("id", "adaptive")).strip()
+        execution_shape = str(workflow.get("execution_shape", "adaptive"))
+        if not workflow_id or execution_shape not in {"adaptive", "single_node", "graph"}:
+            raise SkillConfigurationError("Skill workflow id or execution shape is invalid.")
         return Skill(
             id=str(manifest["id"]), name=document.name, version=str(manifest["version"]),
             description=document.description, instructions=document.body,
@@ -101,6 +129,11 @@ class SkillRegistry:
             references=references, is_default=bool(manifest.get("is_default", False)),
             capabilities=tuple(str(item) for item in manifest.get("capabilities", ())),
             risk_level=str(manifest.get("risk_level", "read-only")),
+            required_evaluators=required_evaluators,
+            semantic_routing=bool(routing.get("semantic_fallback", False)),
+            workflow_id=workflow_id,
+            workflow_execution_shape=execution_shape,
+            assurance_mode=assurance_mode,
             loop_budget=loop_budget,
         )
 
@@ -161,3 +194,13 @@ class SkillRegistry:
         if matches:
             return matches[0]
         raise SkillConfigurationError("No registered skill matched the user input.")
+
+    def semantic_candidates(self, user_input: str) -> tuple[Skill, ...]:
+        """Return explicitly opted-in Skills not excluded by deterministic policy."""
+
+        normalized = user_input.lower()
+        return tuple(
+            skill for skill in self._skills
+            if skill.semantic_routing
+            and not any(keyword in normalized for keyword in skill.excluded_intent_keywords)
+        )

@@ -2,6 +2,7 @@
   "$schema": "../../contracts/agent.schema.json",
   "id": "nino.orchestrator",
   "mode": "primary",
+  "role": "orchestrator",
   "instructions": "AGENT.md",
   "capabilities": ["intent-routing", "capability-discovery", "task-dispatch", "result-reconciliation"],
   "allowed_skills": [],

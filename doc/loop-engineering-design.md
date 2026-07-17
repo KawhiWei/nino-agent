@@ -1,6 +1,6 @@
 # Nino Agent Loop Engineering 详细设计
 
-> 版本：0.10.0  
+> 版本：0.13.0
 > 日期：2026-07-17  
 > 状态：本文区分已实现能力和后续设计，代码与测试是最终行为依据。
 
@@ -367,12 +367,14 @@ status 和 stop reason。
 
 下一阶段按以下顺序实施：
 
-1. `TaskGraph/TaskNode/Gate` 稳定模型与 SQLite 持久化。
-2. 任务依赖、独立节点并行和每节点 acceptance criteria。
-3. Evaluator Port 与确定性 gate，不默认无限反思。
-4. write/privileged 的 `awaiting_approval` 状态、幂等键和审计。
-5. 可重建协议上下文和 Action ledger。
-6. 在安全前提下实现 crash resume。
-7. Node.js/.NET 使用共享 fixtures 通过 Loop contract tests。
+1. [已完成] `TaskGraph/TaskNode/Gate/NodeAttempt` 稳定模型与 SQLite 持久化。
+2. [已完成] 未完成 Run 的 crash recovery；旧 Attempt 保留为 `interrupted`，新 Attempt 重跑 Root Node。
+3. [已完成] 分析 Node 后强制独立 Verifier Node 和 evidence/verification Gate。
+4. [已完成] Orchestrator 产生 DAG revision、依赖校验、ready-node 调度、安全并行和 reconcile。
+5. [下一步] 从持久化 Ready Node 精确恢复，避免重跑已经通过 Gate 的只读节点。
+6. [下一步] write/privileged 的 `awaiting_approval`、幂等键、Action ledger 和审计。
+7. [部分完成] SQLite Runtime heartbeat、Node claim/lease、CAS 和本进程全局并发限制；远程共享存储
+   与跨主机协调仍未实现。
+8. [下一步] Node.js/.NET 使用共享 fixtures 通过 TaskGraph/Loop contract tests。
 
 TaskGraph 管理任务关系，LoopController 管理单个执行循环，两者不能合并成一个无边界的大状态机。

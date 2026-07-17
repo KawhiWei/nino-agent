@@ -37,6 +37,8 @@ class ConversationContext:
     compacted_message_count: int
     original_tokens: int
     updated_at: datetime
+    algorithm_version: str = "extractive-v1"
+    token_counter: str = "approximate-v1"
 
 @dataclass(slots=True)
 class AgentRun:

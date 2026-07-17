@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import httpx
 
 from framework import ToolCall, ToolDefinition, ToolResult
+from version import __version__
 
 
 class McpHttpToolClient:
@@ -64,7 +65,7 @@ class McpHttpToolClient:
                 {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {},
-                    "clientInfo": {"name": "nino-agent-runtime", "version": "0.10.0"},
+                    "clientInfo": {"name": "nino-agent-runtime", "version": __version__},
                 },
             )
             await self._notify("notifications/initialized", {})

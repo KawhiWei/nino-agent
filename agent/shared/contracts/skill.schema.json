@@ -42,6 +42,34 @@
     "risk_level": {
       "enum": ["read-only", "write", "privileged"]
     },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "semantic_fallback": { "type": "boolean", "default": false }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "execution_shape": { "enum": ["adaptive", "single_node", "graph"] }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["best_effort", "strict_verify"] },
+        "required_evaluators": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["verification", "review", "critique"] },
+          "default": []
+        }
+      }
+    },
     "loop": { "$ref": "#/$defs/loopBudget" },
     "max_steps": { "type": "integer", "minimum": 1, "maximum": 20 },
     "references": {

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nino-agent.local/schemas/task-graph-plan.schema.json",
+  "title": "Nino TaskGraph Plan Revision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revision", "nodes"],
+  "properties": {
+    "revision": { "type": "integer", "minimum": 1 },
+    "reason": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/plannedNode" }
+    }
+  },
+  "$defs": {
+    "plannedNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "kind", "agent_id", "skill_id", "task", "depends_on", "acceptance_contract", "gate_kind"],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+        },
+        "kind": { "enum": ["specialist", "verification", "review", "critique"] },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "skill_id": { "type": "string", "minLength": 1 },
+        "task": { "type": "string", "minLength": 1 },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+          }
+        },
+        "input_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "source_node_id", "selector"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "source_node_id": { "type": "string", "minLength": 1 },
+              "selector": {
+                "enum": ["summary", "outputs", "findings", "evidence", "concerns", "recommended_next"]
+              }
+            }
+          }
+        },
+        "acceptance_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["spec_source", "target_outcome", "positive_checks", "negative_checks", "evidence_requirements", "gaps", "pass_label"],
+          "properties": {
+            "spec_source": { "type": "string", "minLength": 1 },
+            "target_outcome": { "type": "string", "minLength": 1 },
+            "positive_checks": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "negative_checks": { "type": "array", "items": { "type": "string" } },
+            "evidence_requirements": { "type": "array", "items": { "type": "string" } },
+            "gaps": { "type": "array", "items": { "type": "string" } },
+            "pass_label": { "type": "string", "minLength": 1 }
+          }
+        },
+        "gate_kind": {
+          "enum": ["evidence", "independent_verification", "review", "critique"]
+        }
+      }
+    }
+  }
+}

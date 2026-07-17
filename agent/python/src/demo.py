@@ -116,22 +116,23 @@ class DemoChatModel:
         if last.role == "tool":
             data = json.loads(last.content)
             if data.get("kind") == "dispatch_result" and is_orchestrator:
-                if data.get("agent_id") == "nino-data.analyst":
-                    if any(word in question for word in ("复杂", "综合", "核对", "验证")):
-                        return ModelTurn(tool_calls=(ToolCall(
-                            id="demo-dispatch-verifier",
-                            name="nino_runtime_dispatch_agent",
-                            arguments={
-                                "agent_id": "nino-data.verifier",
-                                "skill_id": "nino-data.analysis",
-                                "task": f"Independently verify this analysis for: {question}",
-                                "context": str(data.get("summary", "")),
-                            },
-                        ),))
                 return ModelTurn(text=f"演示主 Agent 结论：{data.get('summary', '')}")
             if data.get("reference_id"):
                 return self._data_tool_turn(question)
-            return ModelTurn(text=f"演示结论（CNY）：{json.dumps(data, ensure_ascii=False)}")
+            if "nino_runtime_submit_evaluator_verdict" in tool_names:
+                return ModelTurn(tool_calls=(ToolCall(
+                    id="demo-evaluator-verdict",
+                    name="nino_runtime_submit_evaluator_verdict",
+                    arguments={
+                        "verdict": "passed",
+                        "evidence_level": "proved",
+                        "checked_requirements": ["tool evidence matches the claim"],
+                        "failed_requirements": [],
+                        "concerns": [],
+                    },
+                ),))
+            answer = f"演示结论（CNY）：{json.dumps(data, ensure_ascii=False)}"
+            return ModelTurn(text=answer)
 
         data_intents = (
             "订单", "支付", "退款", "收入", "成本", "毛利", "亏损", "统计", "报表",
@@ -149,7 +150,11 @@ class DemoChatModel:
                 },
             ),))
         if is_orchestrator:
-            return ModelTurn(text=f"演示通用回答：{question}")
+            return ModelTurn(tool_calls=(ToolCall(
+                id="demo-route-reject",
+                name="nino_runtime_reject_request",
+                arguments={"reason": "The request does not fit the demo data capability."},
+            ),))
 
         reference_id = self._reference_for(question)
         if "nino_runtime_load_reference" in tool_names and reference_id not in loaded_references:

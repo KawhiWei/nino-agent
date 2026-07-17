@@ -8,6 +8,7 @@ from .context import (
     TokenCounter,
 )
 from .service import AgentRuntimeService, ResourceNotFoundError, RunConflictError
+from .task_graph import TaskGraphController
 
 __all__ = [
     "AgentRuntimeService",
@@ -17,5 +18,6 @@ __all__ = [
     "ContextWindowConfig",
     "ResourceNotFoundError",
     "RunConflictError",
+    "TaskGraphController",
     "TokenCounter",
 ]

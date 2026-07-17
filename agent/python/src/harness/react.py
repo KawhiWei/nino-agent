@@ -20,6 +20,7 @@ from .skills import Skill, SkillConfigurationError, SkillRegistry
 
 DELEGATE_TOOL_NAME = "nino_runtime_delegate_agent"
 CLARIFICATION_TOOL_NAME = "nino_runtime_request_clarification"
+EVALUATOR_VERDICT_TOOL_NAME = "nino_runtime_submit_evaluator_verdict"
 STRICT_WORKER_POLICY = (
     "Strict completion policy: factual answers require a successful non-reference Tool "
     "Observation. If required input is missing, call nino_runtime_request_clarification with one "
@@ -46,6 +47,7 @@ class HarnessConfig:
     hard_max_consecutive_failures: int = 3
     hard_max_no_progress_steps: int = 3
     max_tool_result_chars: int = 50_000
+    hard_max_parallel_nodes: int = 4
 
     def __post_init__(self) -> None:
         if self.hard_max_steps < 1:
@@ -58,6 +60,8 @@ class HarnessConfig:
         )
         if self.max_tool_result_chars < 1:
             raise ValueError("max_tool_result_chars must be positive.")
+        if self.hard_max_parallel_nodes < 1:
+            raise ValueError("hard_max_parallel_nodes must be positive.")
 
     @property
     def loop_budget(self) -> LoopBudget:
@@ -308,6 +312,27 @@ class ReActHarness:
                         else:
                             result = ToolResult(message)
                             await emit("clarification_requested", step=step, message=message)
+                    elif call.name == EVALUATOR_VERDICT_TOOL_NAME:
+                        verdict = str(call.arguments.get("verdict", ""))
+                        if verdict == "passed" and successful_evidence_actions == 0:
+                            result = ToolResult(
+                                "A passed evaluator verdict requires successful Tool evidence.",
+                                is_error=True,
+                            )
+                        else:
+                            payload = {
+                                "verdict": verdict,
+                                "evidence_level": str(call.arguments.get("evidence_level", "")),
+                                "checked_requirements": list(
+                                    call.arguments.get("checked_requirements", ())
+                                ),
+                                "failed_requirements": list(
+                                    call.arguments.get("failed_requirements", ())
+                                ),
+                                "concerns": list(call.arguments.get("concerns", ())),
+                            }
+                            result = ToolResult(json.dumps(payload, ensure_ascii=False))
+                            await emit("evaluator_verdict", step=step, **payload)
                     elif call.name == DELEGATE_TOOL_NAME:
                         async with asyncio.timeout(loop.remaining_seconds):
                             result = await self._delegate(call, skill, emit, step, run_id)
@@ -316,7 +341,10 @@ class ReActHarness:
                             result = await self._tools.invoke(call)
                     if (
                         not result.is_error
-                        and call.name not in {REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME}
+                        and call.name not in {
+                            REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME,
+                            EVALUATOR_VERDICT_TOOL_NAME,
+                        }
                     ):
                         successful_evidence_actions += 1
                     content = result.content[: self._config.max_tool_result_chars]
@@ -335,10 +363,16 @@ class ReActHarness:
                     await checkpoint("after_observation")
                     if violation is not None:
                         return await fail(violation)
-                    if call.name == CLARIFICATION_TOOL_NAME and not result.is_error:
+                    if call.name in {
+                        CLARIFICATION_TOOL_NAME, EVALUATOR_VERDICT_TOOL_NAME
+                    } and not result.is_error:
                         loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
                         await checkpoint("terminal")
-                        await emit("run_completed", step=step, outcome="clarification")
+                        outcome = (
+                            "evaluator_verdict"
+                            if call.name == EVALUATOR_VERDICT_TOOL_NAME else "clarification"
+                        )
+                        await emit("run_completed", step=step, outcome=outcome)
                         return RunResult(
                             run_id=run_id,
                             status=RunStatus.COMPLETED,
@@ -382,6 +416,35 @@ class ReActHarness:
                 "additionalProperties": False,
             },
         ))
+        if self._agent is not None and self._agent.role == "evaluator":
+            internal.append(ToolDefinition(
+                EVALUATOR_VERDICT_TOOL_NAME,
+                "Submit the evaluator's structured terminal verdict after checking Tool evidence.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "verdict": {
+                            "type": "string",
+                            "enum": ["passed", "failed", "blocked", "needs_context"],
+                        },
+                        "evidence_level": {
+                            "type": "string", "enum": ["proved", "observed", "unproven"]
+                        },
+                        "checked_requirements": {
+                            "type": "array", "items": {"type": "string"}
+                        },
+                        "failed_requirements": {
+                            "type": "array", "items": {"type": "string"}
+                        },
+                        "concerns": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": [
+                        "verdict", "evidence_level", "checked_requirements",
+                        "failed_requirements", "concerns",
+                    ],
+                    "additionalProperties": False,
+                },
+            ))
         if skill.references:
             internal.append(self._references.tool_definition(skill))
         if self._can_delegate():

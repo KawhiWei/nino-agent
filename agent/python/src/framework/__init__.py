@@ -20,13 +20,31 @@ from .conversation import (
 )
 from .ports import AgentHarness, ChatModel, EventHandler, ToolProvider
 from .loop import LoopBudget, LoopKind, LoopSnapshot, LoopStatus, LoopStopReason
-from .repositories import AgentRepository, ConversationRepository, RunRepository
+from .repositories import (
+    ActiveRunConflictError, AgentRepository, ConversationRepository, RunRepository,
+    TaskGraphRepository,
+)
+from .task_graph import (
+    AcceptanceContract,
+    AttemptStatus,
+    GateStatus,
+    NodeAttempt,
+    TaskGate,
+    TaskGraph,
+    TaskGraphSnapshot,
+    TaskGraphStatus,
+    TaskNode,
+    TaskNodeStatus,
+)
 
 __all__ = [
     "AgentEvent",
+    "ActiveRunConflictError",
     "AgentHarness",
     "AgentRepository",
     "AgentRun",
+    "AcceptanceContract",
+    "AttemptStatus",
     "ChatModel",
     "Conversation",
     "ConversationContext",
@@ -34,6 +52,7 @@ __all__ = [
     "ConversationRepository",
     "EventHandler",
     "HarnessStepState",
+    "GateStatus",
     "Message",
     "LoopBudget",
     "LoopKind",
@@ -44,6 +63,14 @@ __all__ = [
     "RunResult",
     "RunRepository",
     "RunStatus",
+    "NodeAttempt",
+    "TaskGate",
+    "TaskGraph",
+    "TaskGraphRepository",
+    "TaskGraphSnapshot",
+    "TaskGraphStatus",
+    "TaskNode",
+    "TaskNodeStatus",
     "ToolCall",
     "ToolDefinition",
     "ToolProvider",

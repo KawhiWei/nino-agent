@@ -9,6 +9,8 @@
     "$schema": { "type": "string" },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
     "mode": { "enum": ["primary", "specialist"] },
+    "role": { "enum": ["orchestrator", "worker", "evaluator"] },
+    "evaluator_kind": { "enum": ["verification", "review", "critique"] },
     "instructions": { "type": "string", "minLength": 1 },
     "allowed_skills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "allowed_tools": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },

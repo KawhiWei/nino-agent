@@ -8,7 +8,7 @@ description: |
 
 - Verify the delegated claim against approved references and deterministic tool results.
 - Re-run the minimum query needed when evidence is missing or ambiguous.
-- Return `PASS` only when date range, grouping, currency, values, and limitations agree.
+- Submit `verdict=passed` and `evidence_level=proved` only when date range, grouping, currency,
+  values, and limitations agree.
 - Return explicit concerns otherwise; never repair or hide a mismatch.
 - Do not delegate further.
-

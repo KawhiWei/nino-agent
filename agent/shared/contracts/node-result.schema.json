@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nino-agent.local/schemas/node-result.schema.json",
+  "title": "Nino Task Node Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "outputs", "evidence", "findings", "concerns", "recommended_next", "error_code", "retryable"],
+  "properties": {
+    "status": { "enum": ["completed", "completed_with_concerns", "needs_context", "failed", "blocked", "cancelled", "skipped"] },
+    "summary": { "type": "string" },
+    "outputs": { "type": "object" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "call_id"],
+        "properties": {
+          "tool": { "type": "string" },
+          "call_id": { "type": "string" },
+          "result_digest": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "findings": { "type": "array", "items": { "type": "string" } },
+    "concerns": { "type": "array", "items": { "type": "string" } },
+    "recommended_next": { "type": "array", "items": { "type": "string" } },
+    "error_code": { "type": ["string", "null"] },
+    "retryable": { "type": "boolean" }
+  }
+}

@@ -5,6 +5,17 @@
   "instructions": "SKILL.md",
   "capabilities": ["order-query", "grouped-statistics", "anomaly-analysis", "report-interpretation"],
   "risk_level": "read-only",
+  "routing": {
+    "semantic_fallback": true
+  },
+  "workflow": {
+    "id": "business-analysis",
+    "execution_shape": "adaptive"
+  },
+  "assurance": {
+    "mode": "strict_verify",
+    "required_evaluators": ["verification"]
+  },
   "loop": {
     "max_actions": 6,
     "timeout_seconds": 60,

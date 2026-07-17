@@ -1,8 +1,9 @@
-# Python Agent Runtime API v0.10
+# Python Agent Runtime API v0.13
 
 ## 1. 定位
 
-Python Runtime 是 API-first 的 ReAct 执行服务。App、Web、Desktop 当前通过 REST + SSE 接入；未来 ACP Adapter 复用同一个 Application Service，不进入或复制 ReAct 核心。
+Python Runtime 是 API-first 的 ReAct 执行服务。App、Web、Desktop 通过 REST + SSE 接入；ACP
+不在当前产品范围。
 
 当前 Runtime 支持：
 
@@ -42,8 +43,11 @@ FastAPI REST + SSE
 | `harness/skills.py` | `SkillRegistry`、manifest 加载、能力元数据和底层 fallback 路由 |
 | `harness/agents.py` | `AgentRegistry`、角色与委派权限 |
 | `harness/orchestrator.py` | 通用主 Agent、动态能力目录、结构化 dispatch 和结果归并 |
+| `harness/scheduler.py` | DAG 校验以及 Ready/Blocked Node 的确定性选择 |
+| `harness/validation.py` | 持久化 Graph 的依赖、Gate 和 Attempt 一致性检查 |
 | `harness/loop.py` | 预算合并、Action/进度记账、停止条件和 checkpoint snapshot |
 | `framework/loop.py` | 跨语言 Loop kind/status/stop reason/budget/snapshot 契约 |
+| `framework/task_graph.py` | TaskGraph、Node、Gate、Attempt 与 AcceptanceContract 契约 |
 | `harness/references.py` | Reference 安全按需加载 |
 | `harness/react.py` | Specialist 轻量 ReAct Worker、Tool 策略和预算 |
 | `harness/langgraph.py` | 相同 Port 的 LangGraph Harness 实现 |
@@ -211,5 +215,5 @@ curl -s http://127.0.0.1:8090/api/v1/conversations/$conversation_id/messages \
 - 压缩摘要是本地提取式摘要，不保证保留所有早期细节。
 - 当前没有删除会话、编辑消息或分支会话 API。
 - 当前没有用户身份、租户、加密字段和细粒度权限。
-- ACP 尚未实现；客户端当前使用 REST + SSE。
+- 客户端统一使用 REST + SSE；当前不计划提供 ACP Host。
 - `web/` 尚未实现。

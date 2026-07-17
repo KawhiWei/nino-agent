@@ -16,6 +16,9 @@ class McpServerConfig:
     required: bool = True
     timeout_seconds: float = 30.0
     transport: str = "streamable-http"
+    max_concurrency: int = 8
+    failure_threshold: int = 3
+    circuit_break_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         if not _SERVER_ID.fullmatch(self.id):
@@ -26,6 +29,10 @@ class McpServerConfig:
             raise ValueError(f"MCP URL must use HTTP(S): {self.id}")
         if self.timeout_seconds <= 0:
             raise ValueError(f"MCP timeout must be positive: {self.id}")
+        if self.max_concurrency < 1 or self.failure_threshold < 1:
+            raise ValueError(f"MCP concurrency and failure threshold must be positive: {self.id}")
+        if self.circuit_break_seconds <= 0:
+            raise ValueError(f"MCP circuit break duration must be positive: {self.id}")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "McpServerConfig":
@@ -35,6 +42,9 @@ class McpServerConfig:
             required=bool(value.get("required", True)),
             timeout_seconds=float(value.get("timeout_seconds", 30.0)),
             transport=str(value.get("transport", "streamable-http")).strip().lower(),
+            max_concurrency=int(value.get("max_concurrency", 8)),
+            failure_threshold=int(value.get("failure_threshold", 3)),
+            circuit_break_seconds=float(value.get("circuit_break_seconds", 30.0)),
         )
 
 

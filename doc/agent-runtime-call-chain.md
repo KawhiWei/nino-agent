@@ -137,7 +137,9 @@ GET /api/v1/runs/{run_id}/loop-checkpoint?kind=orchestration
 GET /api/v1/runs/{run_id}/loop-checkpoint?kind=worker_react
 ```
 
-当前 checkpoint 用于进度、审计和故障定位；自动 crash resume 尚未实现。
+Loop checkpoint 用于进度、审计和节点内故障定位。宏观 crash recovery 已由持久化 TaskGraph 和
+NodeAttempt 实现：重启后旧 Attempt 标记为 `interrupted`，新 Attempt 从 Root Node 重新执行；它不恢复
+隐藏推理，也不在模型调用中间续跑。
 
 ## 5. 多 MCP 发现和路由
 

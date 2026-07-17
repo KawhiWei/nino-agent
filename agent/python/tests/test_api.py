@@ -58,6 +58,9 @@ class AgentApiTests(unittest.TestCase):
             self.assertEqual(200, skills.status_code)
             self.assertEqual("nino-data.analysis", skills.json()[0]["id"])
             self.assertEqual(4, len(skills.json()[0]["references"]))
+            self.assertTrue(skills.json()[0]["semantic_routing"])
+            self.assertEqual("business-analysis", skills.json()[0]["workflow_id"])
+            self.assertEqual("strict_verify", skills.json()[0]["assurance_mode"])
 
             agents = client.get("/api/v1/agents")
             self.assertEqual(200, agents.status_code)
@@ -86,6 +89,23 @@ class AgentApiTests(unittest.TestCase):
             self.assertEqual("completed", run["status"])
             self.assertEqual("nino-data.analysis", run["skill_id"])
             self.assertIn("demo_gross_margin", run["answer"])
+            graph = client.get(f"/api/v1/runs/{run_id}/task-graph").json()
+            self.assertEqual("completed", graph["graph"]["status"])
+            self.assertEqual(
+                {"orchestration", "specialist", "verification"},
+                {node["kind"] for node in graph["nodes"]},
+            )
+            self.assertEqual(
+                "graph_planned", graph["graph"]["metadata"]["revisions"][0]["event"]
+            )
+            specialist = next(node for node in graph["nodes"] if node["kind"] == "specialist")
+            self.assertIn("查询订单", specialist["contract"]["target_outcome"])
+            self.assertIn("outputs", specialist["result"])
+            verification_gate = next(
+                gate for gate in graph["gates"]
+                if gate["kind"] == "independent_verification"
+            )
+            self.assertEqual("passed", verification_gate["status"])
             runs = client.get(
                 f"/api/v1/conversations/{conversation_id}/runs"
             ).json()

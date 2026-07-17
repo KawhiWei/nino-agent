@@ -14,7 +14,8 @@ from framework import (
 from .agents import AgentDefinition, AgentRegistry
 from .loop import LoopController, LoopViolation, stop_reason_for_error, strictest_budget
 from .react import (
-    CLARIFICATION_TOOL_NAME, DELEGATE_TOOL_NAME, STRICT_WORKER_POLICY,
+    CLARIFICATION_TOOL_NAME, DELEGATE_TOOL_NAME, EVALUATOR_VERDICT_TOOL_NAME,
+    STRICT_WORKER_POLICY,
     HarnessConfig, is_concise_clarification,
 )
 from .references import REFERENCE_TOOL_NAME, ReferenceProvider
@@ -301,13 +302,33 @@ class LangGraphReActHarness:
                         await emit(
                             "clarification_requested", step=state["step"], message=message,
                         )
+                elif call.name == EVALUATOR_VERDICT_TOOL_NAME:
+                    verdict = str(call.arguments.get("verdict", ""))
+                    if verdict == "passed" and successful_evidence_actions == 0:
+                        result = ToolResult(
+                            "A passed evaluator verdict requires successful Tool evidence.",
+                            is_error=True,
+                        )
+                    else:
+                        payload = {
+                            "verdict": verdict,
+                            "evidence_level": str(call.arguments.get("evidence_level", "")),
+                            "checked_requirements": list(call.arguments.get("checked_requirements", ())),
+                            "failed_requirements": list(call.arguments.get("failed_requirements", ())),
+                            "concerns": list(call.arguments.get("concerns", ())),
+                        }
+                        result = ToolResult(json.dumps(payload, ensure_ascii=False))
+                        await emit("evaluator_verdict", step=state["step"], **payload)
                 elif call.name == DELEGATE_TOOL_NAME:
                     result = await self._delegate(call, emit, state["step"], run_id)
                 else:
                     result = await self._tools.invoke(call)
                 if (
                     not result.is_error
-                    and call.name not in {REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME}
+                    and call.name not in {
+                        REFERENCE_TOOL_NAME, CLARIFICATION_TOOL_NAME,
+                        EVALUATOR_VERDICT_TOOL_NAME,
+                    }
                 ):
                     successful_evidence_actions += 1
                 content = result.content[: self._config.max_tool_result_chars]
@@ -327,7 +348,9 @@ class LangGraphReActHarness:
                         "error_code": violation.error_code,
                         "error_message": violation.message,
                     }
-                if call.name == CLARIFICATION_TOOL_NAME and not result.is_error:
+                if call.name in {
+                    CLARIFICATION_TOOL_NAME, EVALUATOR_VERDICT_TOOL_NAME
+                } and not result.is_error:
                     return {
                         "messages": tuple(messages),
                         "invoked": frozenset(invoked),
@@ -383,6 +406,35 @@ class LangGraphReActHarness:
                 "additionalProperties": False,
             },
         ))
+        if self._agent is not None and self._agent.role == "evaluator":
+            internal.append(ToolDefinition(
+                EVALUATOR_VERDICT_TOOL_NAME,
+                "Submit the evaluator's structured terminal verdict after checking Tool evidence.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "verdict": {
+                            "type": "string",
+                            "enum": ["passed", "failed", "blocked", "needs_context"],
+                        },
+                        "evidence_level": {
+                            "type": "string", "enum": ["proved", "observed", "unproven"]
+                        },
+                        "checked_requirements": {
+                            "type": "array", "items": {"type": "string"}
+                        },
+                        "failed_requirements": {
+                            "type": "array", "items": {"type": "string"}
+                        },
+                        "concerns": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": [
+                        "verdict", "evidence_level", "checked_requirements",
+                        "failed_requirements", "concerns",
+                    ],
+                    "additionalProperties": False,
+                },
+            ))
         if skill.references:
             internal.append(self._references.tool_definition(skill))
         if self._can_delegate():

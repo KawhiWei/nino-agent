@@ -118,7 +118,7 @@ Agent 定义同理加载 `shared/agents/*/agent.json` 和 `AGENT.md`。
 - 动态候选发现、Specialist Skill 白名单和最大派发深度。
 - `nino_runtime_dispatch_agent` 参数与结构化 dispatch result 语义。
 - Loop kind/status/stop reason、预算合并和 `loop_checkpoint` 字段语义。
-- MCP 使用标准协议，客户端协议由 REST/SSE 和后续 ACP Adapter 提供。
+- MCP 使用标准协议，产品客户端协议使用 REST/SSE。
 
 语言内部的类名、异步库、图框架和 Repository SDK 可以不同。
 
@@ -128,6 +128,6 @@ Agent 定义同理加载 `shared/agents/*/agent.json` 和 `AGENT.md`。
 2. 实现 Infrastructure MCP Registry，验证多 Server 发现和路由。
 3. 实现 Harness `run(request)` 与 `step(state)`；前者组织有界 ReAct，后者只做一次模型决策。
 4. 实现 Runtime Session/Run/Event 和持久化。
-5. 最后接 API/ACP Adapter。
+5. 最后接 REST/SSE API Adapter。
 
 不要从复制 Python 源码开始；应从共享契约和行为测试开始。

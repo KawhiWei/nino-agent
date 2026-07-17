@@ -29,6 +29,11 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("nino-data-analysis", skill.name)
         self.assertEqual(4, len(skill.references))
+        self.assertEqual(("verification",), skill.required_evaluators)
+        self.assertTrue(skill.semantic_routing)
+        self.assertEqual("business-analysis", skill.workflow_id)
+        self.assertEqual("adaptive", skill.workflow_execution_shape)
+        self.assertEqual("strict_verify", skill.assurance_mode)
         self.assertEqual("nino.orchestrator", primary.id)
         self.assertTrue(primary.discover_delegates)
         self.assertEqual(
@@ -56,7 +61,7 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("completed", result.status.value)
         self.assertIn("reference_loaded", [event.type for event in result.events])
         self.assertEqual(
-            ["nino-data.analyst"],
+            ["nino-data.analyst", "nino-data.verifier"],
             [event.data["agent_id"] for event in result.events if event.type == "agent_started"],
         )
 

@@ -5,10 +5,11 @@ from typing import Sequence
 from uuid import uuid4
 
 from framework import (
-    AgentEvent, AgentHarness, AgentRepository, AgentRun, Conversation,
-    ConversationContext, ConversationMessage, RunStatus, utc_now,
+    ActiveRunConflictError, AgentEvent, AgentHarness, AgentRepository, AgentRun, Conversation,
+    ConversationContext, ConversationMessage, RunResult, RunStatus, TaskGraphSnapshot, utc_now,
 )
 from .context import ConversationContextManager
+from .task_graph import TaskGraphController
 
 
 class ResourceNotFoundError(LookupError):
@@ -39,6 +40,59 @@ class AgentRuntimeService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._active_conversation_runs: dict[str, str] = {}
         self._task_lock = asyncio.Lock()
+        self._instance_id = f"python-runtime:{uuid4()}"
+        self._graphs = TaskGraphController(repository, self._instance_id)
+        self._started = False
+        self._shutting_down = False
+        self._heartbeat_task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        """Resume Runs returned to the durable queue after an unclean process stop."""
+
+        async with self._task_lock:
+            if self._started:
+                return
+            self._started = True
+        await self._repository.register_runtime(self._instance_id)
+        await self._repository.prepare_recovery(self._instance_id, stale_after_seconds=30)
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(), name=f"runtime-heartbeat:{self._instance_id}"
+        )
+        for run in await self._repository.list_recoverable_runs():
+            trigger = await self._repository.get_trigger_message(run.id)
+            if trigger is None:
+                run.status = RunStatus.FAILED
+                run.error_code = "RECOVERY_TRIGGER_MISSING"
+                run.answer = "Cannot recover Run because its trigger message is missing."
+                run.completed_at = utc_now()
+                await self._repository.update_run(run)
+                continue
+            await self._graphs.ensure(run, trigger.content)
+            await self._schedule(run, trigger)
+
+    async def shutdown(self) -> None:
+        # Shutdown is an infrastructure interruption, not a user cancellation. Active Runs stay
+        # recoverable and their leased Attempts are interrupted by the next Runtime instance.
+        self._shutting_down = True
+        async with self._task_lock:
+            tasks = tuple(self._tasks.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            await asyncio.gather(self._heartbeat_task, return_exceptions=True)
+            self._heartbeat_task = None
+        await self._repository.unregister_runtime(self._instance_id)
+
+    async def _heartbeat_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(10)
+                await self._repository.heartbeat_runtime(self._instance_id)
+        except asyncio.CancelledError:
+            raise
 
     async def create_conversation(self, title: str | None = None) -> Conversation:
         now = utc_now()
@@ -84,21 +138,48 @@ class AgentRuntimeService:
             content=content.strip(), run_id=run.id, created_at=utc_now(),
         )
         try:
-            await self._repository.add_message(message)
-            await self._repository.create_run(run)
+            await self._repository.create_run_with_message(run, message)
+        except ActiveRunConflictError as exc:
+            async with self._task_lock:
+                if self._active_conversation_runs.get(conversation_id) == run.id:
+                    self._active_conversation_runs.pop(conversation_id, None)
+            raise RunConflictError(str(exc)) from exc
         except Exception:
             async with self._task_lock:
                 if self._active_conversation_runs.get(conversation_id) == run.id:
                     self._active_conversation_runs.pop(conversation_id, None)
             raise
 
-        task = asyncio.create_task(self._execute(run, message), name=f"agent-run:{run.id}")
+        parent_graph_id = None
+        previous_runs = await self._repository.list_runs(conversation_id)
+        for previous in reversed(previous_runs):
+            if previous.id == run.id or previous.status != RunStatus.COMPLETED:
+                continue
+            previous_graph = await self._repository.get_task_graph(previous.id)
+            if previous_graph is not None:
+                parent_graph_id = previous_graph.graph.id
+                break
+        await self._graphs.ensure(run, message.content, parent_graph_id=parent_graph_id)
+        await self._schedule(run, message)
+        return run
+
+    async def _schedule(self, run: AgentRun, trigger: ConversationMessage) -> None:
         async with self._task_lock:
+            active_run_id = self._active_conversation_runs.get(run.conversation_id)
+            if active_run_id is not None and active_run_id != run.id:
+                raise RunConflictError(
+                    f"Conversation already has an active run: {active_run_id}"
+                )
+            self._active_conversation_runs[run.conversation_id] = run.id
+            if run.id in self._tasks:
+                return
+            task = asyncio.create_task(
+                self._execute(run, trigger), name=f"agent-run:{run.id}"
+            )
             self._tasks[run.id] = task
         task.add_done_callback(
             lambda _: asyncio.create_task(self._forget_task(run.id, run.conversation_id))
         )
-        return run
 
     async def get_run(self, run_id: str) -> AgentRun:
         run = await self._repository.get_run(run_id)
@@ -126,6 +207,13 @@ class AgentRuntimeService:
                 return event
         return None
 
+    async def get_task_graph(self, run_id: str) -> TaskGraphSnapshot:
+        await self.get_run(run_id)
+        snapshot = await self._repository.get_task_graph(run_id)
+        if snapshot is None:
+            raise ResourceNotFoundError(f"TaskGraph not found for Run: {run_id}")
+        return snapshot
+
     async def wait_for_events(
         self, run_id: str, after: int, timeout_seconds: float = 15.0
     ) -> Sequence[AgentEvent]:
@@ -148,8 +236,10 @@ class AgentRuntimeService:
         return await self.get_run(run_id)
 
     async def _execute(self, run: AgentRun, trigger: ConversationMessage) -> None:
+        graph_state = None
         try:
             async with self._run_slots:
+                graph_state = await self._graphs.start(run, trigger.content)
                 run.status = RunStatus.RUNNING
                 run.started_at = utc_now()
                 await self._repository.update_run(run)
@@ -175,18 +265,24 @@ class AgentRuntimeService:
                 }
                 await self._repository.update_run(run)
 
-                async def save_event(event: AgentEvent) -> None:
-                    await self._repository.append_event(event)
+                async def save_event(event: AgentEvent):
+                    persisted = await self._repository.append_event(event)
+                    return await self._graphs.record_event(run, persisted)
 
                 result = await self._harness.run(
                     trigger.content, history=history, on_event=save_event, run_id=run.id
                 )
+                if self._shutting_down and result.status == RunStatus.CANCELLED:
+                    await self._interrupt_for_shutdown(run)
+                    return
                 run.status = result.status
                 run.skill_id = result.skill_id
                 run.answer = result.answer
                 run.error_code = result.error_code
                 run.steps = result.steps
                 run.completed_at = utc_now()
+                await self._graphs.finish(*graph_state, result)
+                # Publish terminal Run state only after graph truth and gates are durable.
                 await self._repository.update_run(run)
                 if result.status == RunStatus.COMPLETED:
                     await self._repository.add_message(ConversationMessage(
@@ -195,6 +291,9 @@ class AgentRuntimeService:
                         created_at=utc_now(),
                     ))
         except asyncio.CancelledError:
+            if self._shutting_down:
+                await self._interrupt_for_shutdown(run)
+                raise
             run.status = RunStatus.CANCELLED
             run.error_code = "RUN_CANCELLED"
             run.answer = "Run was cancelled."
@@ -208,6 +307,14 @@ class AgentRuntimeService:
                 type="run_cancelled",
                 data={"error_code": run.error_code},
             ))
+            if graph_state is not None:
+                await self._graphs.finish(
+                    *graph_state,
+                    RunResult(
+                        run.id, RunStatus.CANCELLED, run.answer, None,
+                        run.steps, (), run.error_code,
+                    ),
+                )
             raise
         except Exception as exc:
             run.status = RunStatus.FAILED
@@ -221,6 +328,24 @@ class AgentRuntimeService:
                 run_id=run.id, sequence=next_sequence, type="run_failed",
                 data={"error_code": run.error_code, "message": run.answer},
             ))
+            if graph_state is not None:
+                await self._graphs.fail_unexpected(*graph_state, run.error_code)
+
+    async def _interrupt_for_shutdown(self, run: AgentRun) -> None:
+        """Return an active Run to the durable queue without closing its TaskGraph."""
+
+        run.status = RunStatus.QUEUED
+        run.error_code = None
+        run.answer = ""
+        run.started_at = None
+        run.completed_at = None
+        await self._repository.update_run(run)
+        await self._repository.append_event(AgentEvent(
+            run_id=run.id,
+            sequence=0,
+            type="run_interrupted",
+            data={"reason": "runtime_shutdown", "runtime_instance_id": self._instance_id},
+        ))
 
     async def _forget_task(self, run_id: str, conversation_id: str) -> None:
         async with self._task_lock:

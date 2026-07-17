@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Protocol, Sequence
+from typing import Any, Awaitable, Callable, Protocol, Sequence
 
 from .models import (
     AgentEvent, HarnessStepState, Message, ModelTurn, RunResult,
@@ -8,7 +8,7 @@ from .models import (
 )
 
 
-EventHandler = Callable[[AgentEvent], Awaitable[None] | None]
+EventHandler = Callable[[AgentEvent], Awaitable[Any] | Any]
 
 
 class AgentHarness(Protocol):

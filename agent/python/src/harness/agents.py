@@ -22,6 +22,8 @@ class AgentDefinition:
     description: str
     instructions: str
     mode: str
+    role: str
+    evaluator_kind: str | None
     allowed_skills: frozenset[str]
     allowed_tools: frozenset[str]
     allowed_delegates: frozenset[str]
@@ -92,6 +94,18 @@ class AgentRegistry:
         mode = str(manifest["mode"])
         if mode not in {"primary", "specialist"}:
             raise AgentConfigurationError("Agent mode must be primary or specialist.")
+        role = str(manifest.get("role", "orchestrator" if mode == "primary" else "worker"))
+        evaluator_kind = manifest.get("evaluator_kind")
+        if role not in {"orchestrator", "worker", "evaluator"}:
+            raise AgentConfigurationError("Agent role must be orchestrator, worker, or evaluator.")
+        if mode == "primary" and role != "orchestrator":
+            raise AgentConfigurationError("Primary Agent role must be orchestrator.")
+        if mode == "specialist" and role == "orchestrator":
+            raise AgentConfigurationError("Specialist Agent cannot use orchestrator role.")
+        if role == "evaluator" and evaluator_kind not in {"verification", "review", "critique"}:
+            raise AgentConfigurationError("Evaluator Agent requires evaluator_kind.")
+        if role != "evaluator" and evaluator_kind is not None:
+            raise AgentConfigurationError("Only evaluator Agents may set evaluator_kind.")
         max_steps = int(manifest["max_steps"])
         max_depth = int(manifest.get("max_delegation_depth", 0))
         if not 1 <= max_steps <= 20 or not 0 <= max_depth <= 3:
@@ -105,7 +119,8 @@ class AgentRegistry:
             raise AgentConfigurationError(f"Agent loop budget is invalid: {exc}") from exc
         return AgentDefinition(
             id=str(manifest["id"]), name=document.name, description=document.description,
-            instructions=document.body, mode=mode,
+            instructions=document.body, mode=mode, role=role,
+            evaluator_kind=str(evaluator_kind) if evaluator_kind is not None else None,
             allowed_skills=frozenset(str(item) for item in manifest["allowed_skills"]),
             allowed_tools=frozenset(str(item) for item in manifest["allowed_tools"]),
             allowed_delegates=frozenset(str(item) for item in manifest.get("allowed_delegates", ())),

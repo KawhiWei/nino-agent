@@ -1,7 +1,7 @@
 # Nino Data Agent 当前实现与演进设计
 
-> 文档基线：`nino-agent` v0.10，2026-07-17  
-> 目标：准确描述仓库中已经存在的实现，并把尚未实现的 ACP、Web 和生产能力明确列为后续工作。
+> 文档基线：`nino-agent` v0.12，2026-07-17
+> 目标：准确描述仓库中已经存在的实现，并把尚未实现的 Web 和生产能力明确列为后续工作。
 
 Runtime、Framework、SQLite 和多 MCP 的逐步调用过程见 [`agent-runtime-call-chain.md`](./agent-runtime-call-chain.md)。
 
@@ -17,8 +17,10 @@ Runtime、Framework、SQLite 和多 MCP 的逐步调用过程见 [`agent-runtime
 - 共享目录中有一个 `nino-data.analysis` Skill、四个按需加载 Reference、一个通用主 Agent 和两个业务 Specialist。
 - `nino.orchestrator` 是业务无关入口，通过能力目录动态选择兼容的 Specialist + Skill，最大派发深度为 1。
 - 会话、消息、Run、事件和压缩上下文已经使用本地 SQLite 持久化。
+- TaskGraph、TaskNode、Gate 和 NodeAttempt 已持久化；中断 Run 可在重启后创建新 Attempt 恢复。
+- Analyst 结论必须经过独立 Verifier 重新取证并通过 Verification Gate。
 - 同一 `conversation_id` 支持跨进程重启继续追问；长历史会按模型 token 预算动态压缩。
-- ACP Adapter、Web 前端、身份认证和 OpenTelemetry 尚未实现。
+- Web 前端、身份认证和 OpenTelemetry 尚未实现；ACP 不在当前产品范围。
 
 因此，不能把当前项目描述为 .NET Agent Runtime、ACP 已接入或完整生产平台。`.NET` 目前只用于 MCP Server。
 
@@ -387,13 +389,10 @@ Application Service 保证：
 `tool_started/completed`、`reference_loaded`、`agent_started/completed/failed` 和
 `run_completed/failed/cancelled`。
 
-## 9. ACP 与前端的正确状态
+## 9. 客户端协议与前端
 
-ACP 是目标协议，但当前仓库尚未实现 ACP Host/Gateway。当前 App、Web、Desktop 应直接使用 REST + SSE。
-
-后续 ACP Adapter 应调用同一个 `AgentRuntimeService`，将 ACP session/prompt/cancel/update 映射为现有 Conversation、Run 和 Event，不能再实现一套 ReAct Harness，也不应通过 HTTP 反向调用本进程。
-
-`web/` 当前为空。前端最小实现应包含会话、消息、Run 状态、工具/Reference/子 Agent 事件和最终答案；第一版直接消费 REST + SSE。ACP Adapter 落地后，再提供 ACP client adapter，UI 状态模型保持不变。
+App、Web、Desktop 统一使用 REST + SSE。`web/` 当前为空；前端最小实现应包含会话、消息、Run、
+TaskGraph、Tool/Reference/子 Agent 事件、Gate 状态和最终答案。ACP 不作为当前依赖。
 
 ## 10. 启动和验证
 
@@ -443,22 +442,21 @@ docker compose exec -T db psql -U nino -d nino_data_demo < database/tests/assert
 
 以下能力当前明确没有实现：
 
-- ACP Host、ACP Gateway 和 ACP contract tests。
 - Web/App/Desktop 客户端。
 - 登录、RBAC、租户隔离和公网 MCP 认证。
 - 多实例共享的远程 Repository；当前 SQLite 面向本地单实例。
 - OpenTelemetry、Redis、消息队列、对象存储和后台任务。
 - 报表文件导出和大数据异步任务。
 - 写操作 Skill/MCP Tool、人工审批、幂等写入和补偿机制。
-- 动态 Planner、自由 Agent 通信和超过一层的委派。
+- 从持久化 Ready Node 精确恢复、自由 Agent 通信和超过一层的委派。
 
 ## 12. 下一步顺序
 
 1. 先用真实模型跑通三类基准问题，并将答案和 MCP `QueryId`、golden SQL 对比。
 2. 增加 Agent eval cases，覆盖错误参数、重复调用、越权工具、Reference 路由和 Analyst/Verifier 委派。
-3. 基于现有 Application Service 实现 ACP Adapter 和协议兼容测试。
-4. 在 `web/` 建立最小客户端，先消费 REST + SSE，再切换或并存 ACP Adapter。
-5. 只有只读查询和评测稳定后，才设计下单等写操作；写操作必须使用独立 Skill、独立 MCP Tool、审批和幂等键。
+3. 实现 write/privileged Skill 的审批、幂等 Tool ledger 和可信审计，再开放写 MCP。
+4. 在 `web/` 建立消费 REST + SSE 的最小客户端，并展示 TaskGraph/Gate。
+5. 增加身份、租户、RBAC 和数据权限上下文。
 
 ## 13. 架构决策
 

@@ -1,4 +1,4 @@
-# Python Agent Runtime API v0.10
+# Python Agent Runtime API v0.13
 
 API-first Python ReAct Runtime for App, Web, Desktop, and future ACP adapters. CLI is not a product entry point.
 
@@ -30,6 +30,10 @@ Runtime 管理 Conversation、Run、上下文、取消和事件；Harness 管理
 ReAct 循环。Harness 不选择 MCP transport，而是调用 Framework `ToolProvider` Port。live 模式下
 `McpServerRegistry` 聚合并路由多个 MCP Streamable HTTP Server。
 
+Orchestrator 的路由先执行确定性排除和关键词召回；未命中时只允许显式 opt-in Skill 参与受控语义
+判定。Graph 的 `depends_on` 表达控制依赖，`input_bindings` 表达结构化结果传递。每个 dispatch 的
+Acceptance Contract 同时进入 Worker、Evaluator 和持久化 TaskNode。
+
 ## Project Structure and Layer Responsibilities
 
 ```text
@@ -43,9 +47,12 @@ agent/python/
 │   │   └── schemas.py             # External request/response DTOs
 │   ├── runtime/                   # Durable execution lifecycle
 │   │   ├── service.py             # Conversation, Run, events, cancellation and concurrency
+│   │   ├── task_graph.py          # Durable Graph projection, Node claim and gate completion
 │   │   └── context.py             # Token budgets and context compaction
 │   ├── harness/                   # Agent reasoning and policy
 │   │   ├── orchestrator.py        # Generic capability routing and structured dispatch
+│   │   ├── scheduler.py           # Deterministic DAG validation and ready/blocked selection
+│   │   ├── validation.py          # Persisted TaskGraph consistency lint
 │   │   ├── loop.py                # Loop budgets, progress accounting and stop policy
 │   │   ├── react.py               # Lightweight controlled ReAct engine
 │   │   ├── langgraph.py           # LangGraph implementation of the same Harness Port
@@ -55,6 +62,7 @@ agent/python/
 │   │   └── documents.py           # YAML frontmatter instruction parser
 │   ├── framework/                 # Stable entities and infrastructure-free Ports
 │   │   ├── loop.py                # Cross-language Loop state and stop-reason contracts
+│   │   ├── task_graph.py          # Graph, Node, Gate, Attempt and acceptance entities
 │   │   ├── models.py              # ReAct Message, Tool, Event and Result types
 │   │   ├── conversation.py        # Conversation, Run and persisted context entities
 │   │   ├── ports.py               # AgentHarness, ChatModel and ToolProvider Ports
@@ -186,6 +194,11 @@ curl -s -X POST http://127.0.0.1:8090/api/v1/runs/{run_id}/cancel
 | `GET` | `/api/v1/runs/{id}/events` | Read replayable event history |
 | `GET` | `/api/v1/runs/{id}/events/stream` | Stream SSE events |
 | `GET` | `/api/v1/runs/{id}/loop-checkpoint` | Read latest persisted Loop state; optional `kind` filter |
+| `GET` | `/api/v1/runs/{id}/task-graph` | Read complete durable Graph snapshot |
+| `GET` | `/api/v1/runs/{id}/task-graph/lint` | Validate Graph dependency, Gate and Attempt invariants |
+| `GET` | `/api/v1/runs/{id}/task-graph/nodes` | Read Task Nodes |
+| `GET` | `/api/v1/runs/{id}/task-graph/gates` | Read acceptance/evidence Gates |
+| `GET` | `/api/v1/runs/{id}/task-graph/attempts` | Read execution attempts and lease state |
 
 ## Runtime Selection
 
@@ -213,6 +226,7 @@ The API contract does not change when the engine or model adapter changes.
 | `NINO_LOOP_HARD_TIMEOUT_SECONDS` | 1-3600 | Runtime Loop timeout ceiling; default 300. |
 | `NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES` | 1-20 | Runtime failure ceiling; default 3. |
 | `NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS` | 1-20 | Runtime no-progress ceiling; default 3. |
+| `NINO_GRAPH_MAX_PARALLEL_NODES` | positive integer | Global in-process Task Node concurrency ceiling. |
 
 Recommended first live configuration uses the smallest dependency surface:
 

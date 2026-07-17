@@ -2,6 +2,8 @@
   "$schema": "../../contracts/agent.schema.json",
   "id": "nino-data.verifier",
   "mode": "specialist",
+  "role": "evaluator",
+  "evaluator_kind": "verification",
   "instructions": "AGENT.md",
   "capabilities": ["data-verification", "metric-validation", "evidence-review"],
   "allowed_skills": ["nino-data.analysis"],

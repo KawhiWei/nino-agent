@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -16,6 +17,13 @@ class McpServerStatus:
     state: str
     tool_count: int = 0
     error: str | None = None
+    consecutive_failures: int = 0
+
+
+@dataclass(slots=True)
+class _CircuitState:
+    consecutive_failures: int = 0
+    open_until: float = 0.0
 
 
 class McpServerRegistry:
@@ -49,6 +57,10 @@ class McpServerRegistry:
             for item in configs
         }
         self._discovery_lock = asyncio.Lock()
+        self._limits = {
+            item.id: asyncio.Semaphore(item.max_concurrency) for item in configs
+        }
+        self._circuits = {item.id: _CircuitState() for item in configs}
 
     @property
     def statuses(self) -> tuple[McpServerStatus, ...]:
@@ -65,7 +77,41 @@ class McpServerRegistry:
         server_id = self._routes.get(call.name)
         if server_id is None:
             raise OSError(f"No MCP server exposes tool: {call.name}")
-        return await self._clients[server_id].invoke(call)
+        config = next(item for item in self._configs if item.id == server_id)
+        circuit = self._circuits[server_id]
+        now = time.monotonic()
+        if circuit.open_until > now:
+            self._statuses[server_id] = McpServerStatus(
+                server_id, config.required, "circuit_open",
+                tool_count=self._statuses[server_id].tool_count,
+                error="MCP circuit is cooling down.",
+                consecutive_failures=circuit.consecutive_failures,
+            )
+            raise OSError(f"MCP server circuit is open: {server_id}")
+        if circuit.open_until:
+            circuit.open_until = 0.0
+        async with self._limits[server_id]:
+            try:
+                result = await self._clients[server_id].invoke(call)
+            except (OSError, TimeoutError) as exc:
+                circuit.consecutive_failures += 1
+                if circuit.consecutive_failures >= config.failure_threshold:
+                    circuit.open_until = time.monotonic() + config.circuit_break_seconds
+                self._statuses[server_id] = McpServerStatus(
+                    server_id, config.required,
+                    "circuit_open" if circuit.open_until else "degraded",
+                    tool_count=self._statuses[server_id].tool_count,
+                    error=f"{type(exc).__name__}: {exc}",
+                    consecutive_failures=circuit.consecutive_failures,
+                )
+                raise
+            circuit.consecutive_failures = 0
+            circuit.open_until = 0.0
+            previous = self._statuses[server_id]
+            self._statuses[server_id] = McpServerStatus(
+                server_id, config.required, "ready", previous.tool_count
+            )
+            return result
 
     async def refresh(self) -> Sequence[ToolDefinition]:
         async with self._discovery_lock:

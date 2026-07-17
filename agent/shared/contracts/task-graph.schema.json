@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nino-agent.local/schemas/task-graph.schema.json",
+  "title": "Nino Durable TaskGraph Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["graph", "nodes", "gates", "attempts"],
+  "properties": {
+    "graph": { "$ref": "#/$defs/graph" },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "gates": { "type": "array", "items": { "$ref": "#/$defs/gate" } },
+    "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } }
+  },
+  "$defs": {
+    "status": {
+      "enum": ["pending", "running", "awaiting_approval", "completed", "failed", "cancelled"]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec_source", "target_outcome", "positive_checks", "negative_checks", "evidence_requirements", "gaps", "pass_label"],
+      "properties": {
+        "spec_source": { "type": "string", "minLength": 1 },
+        "target_outcome": { "type": "string", "minLength": 1 },
+        "positive_checks": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "negative_checks": { "type": "array", "items": { "type": "string" } },
+        "evidence_requirements": { "type": "array", "items": { "type": "string" } },
+        "gaps": { "type": "array", "items": { "type": "string" } },
+        "pass_label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["id", "run_id", "conversation_id", "user_intent", "status", "version", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "conversation_id": { "type": "string" },
+        "user_intent": { "type": "string" },
+        "status": { "$ref": "#/$defs/status" },
+        "version": { "type": "integer", "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "metadata": { "type": "object" },
+        "parent_graph_id": { "type": ["string", "null"] },
+        "relation_type": { "type": ["string", "null"] },
+        "archived_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "graph_id", "kind", "owner_agent_id", "title", "status", "dependencies", "contract"],
+      "properties": {
+        "id": { "type": "string" },
+        "graph_id": { "type": "string" },
+        "parent_node_id": { "type": ["string", "null"] },
+        "kind": { "enum": ["orchestration", "specialist", "verification", "review", "critique", "approval"] },
+        "owner_agent_id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "enum": ["pending", "running", "awaiting_approval", "completed", "failed", "cancelled", "skipped"] },
+        "dependencies": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "contract": { "$ref": "#/$defs/contract" },
+        "result_summary": { "type": "string" },
+        "result": { "type": "object" },
+        "error_code": { "type": ["string", "null"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "required": ["id", "graph_id", "node_id", "kind", "status", "required", "evidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "graph_id": { "type": "string" },
+        "node_id": { "type": "string" },
+        "kind": { "enum": ["acceptance", "evidence", "independent_verification", "review", "critique", "approval"] },
+        "status": { "enum": ["pending", "passed", "failed", "blocked"] },
+        "required": { "type": "boolean" },
+        "evaluator_agent_id": { "type": ["string", "null"] },
+        "verdict": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } },
+        "created_at": { "type": "string", "format": "date-time" },
+        "evaluated_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "required": ["id", "graph_id", "node_id", "attempt_number", "status", "started_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "graph_id": { "type": "string" },
+        "node_id": { "type": "string" },
+        "attempt_number": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["running", "completed", "failed", "cancelled", "interrupted"] },
+        "lease_owner": { "type": ["string", "null"] },
+        "lease_expires_at": { "type": ["string", "null"], "format": "date-time" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "error_code": { "type": ["string", "null"] },
+        "checkpoint": { "type": "object" }
+      }
+    }
+  }
+}

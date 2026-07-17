@@ -31,6 +31,7 @@ class RuntimeSettings:
     loop_hard_timeout_seconds: int = 300
     loop_hard_max_consecutive_failures: int = 3
     loop_hard_max_no_progress_steps: int = 3
+    graph_max_parallel_nodes: int = 4
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
@@ -56,6 +57,9 @@ class RuntimeSettings:
             ),
             loop_hard_max_no_progress_steps=int(
                 os.getenv("NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS", "3")
+            ),
+            graph_max_parallel_nodes=int(
+                os.getenv("NINO_GRAPH_MAX_PARALLEL_NODES", "4")
             ),
         )
 
@@ -86,6 +90,7 @@ def build_harness_assembly(
         hard_timeout_seconds=settings.loop_hard_timeout_seconds,
         hard_max_consecutive_failures=settings.loop_hard_max_consecutive_failures,
         hard_max_no_progress_steps=settings.loop_hard_max_no_progress_steps,
+        hard_max_parallel_nodes=settings.graph_max_parallel_nodes,
     )
     if settings.mode == "demo":
         model = DemoChatModel()
@@ -142,6 +147,18 @@ def _validate_agent_permissions(skills: SkillRegistry, agents: AgentRegistry) ->
                 f"Agent {agent.id} allows tools outside its skills: "
                 f"{', '.join(sorted(unknown_tools))}"
             )
+    specialists = tuple(agent for agent in agents.agents if agent.mode == "specialist")
+    for skill in skills.skills:
+        for kind in skill.required_evaluators:
+            found = any(
+                skill.id in agent.allowed_skills
+                and agent.role == "evaluator" and agent.evaluator_kind == kind
+                for agent in specialists
+            )
+            if not found:
+                raise ValueError(
+                    f"Skill {skill.id} requires unavailable evaluator role: {kind}"
+                )
 
 
 def _build_model(settings: RuntimeSettings) -> ChatModel:
