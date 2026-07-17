@@ -1,6 +1,23 @@
 # Python Agent Runtime API v0.13
 
-API-first Python ReAct Runtime for App, Web, Desktop, and future ACP adapters. CLI is not a product entry point.
+面向 App、Web 和 Desktop 的 API-first Python Agent Runtime，以 REST + SSE 作为当前产品入口。
+CLI 不是产品入口，ACP 也不在当前实现范围内。
+
+## Design Positioning
+
+Nino Agent 当前最准确的定位是：
+
+> 一个支持持久化任务图、确定性证据门禁、独立验证和故障恢复的只读数据分析 Harness。
+
+它不是简单的 Prompt + Model 包装。模型负责语义路由、任务拆解和分析表达；Harness 负责能力边界、
+执行预算、依赖调度、Tool 证据、完成条件、持久化状态和恢复决策。一次模型回答不等于任务完成，只有
+TaskGraph 中必需节点及其 Gate 均满足后，Root Run 才能完成。
+
+建议按以下顺序阅读：
+
+1. 本 README：安装、运行、API、配置和能力边界。
+2. [任务级 Harness 完整设计](../../doc/task-level-harness-design.md)：设计动机、领域模型、完整调用链、代码映射、恢复语义、Git 演进和取舍。
+3. [gpt-5.4 Agent Runbook](../../doc/gpt-5.4-agent-runbook.md)：真实模型启动、Tool Calling 联调与验收。
 
 ## Architecture
 
@@ -135,7 +152,40 @@ OpenAPI:
 - Health: `http://127.0.0.1:8090/health`
 
 gpt-5.4 live setup and Tool Calling acceptance: [gpt-5.4 Agent Runbook](../../doc/gpt-5.4-agent-runbook.md).
-Generic control-plane routing and extension rules: [Generic Orchestrator Design](../../doc/generic-orchestrator-design.md).
+Task-level Harness architecture, execution semantics, recovery boundaries, and Git evolution:
+[Task-level Harness Complete Design](../../doc/task-level-harness-design.md).
+
+## Current Capability Boundary
+
+| Capability | Status | Current meaning |
+|---|---|---|
+| REST + SSE Runtime | Implemented | Durable Conversation/Run, replayable events, cancellation, and query APIs |
+| Dynamic Agent + Skill routing | Implemented | Deterministic exclusion and keyword recall; opt-in semantic fallback when keywords do not match |
+| Specialist ReAct execution | Implemented | Fresh context, Tool allowlist, loop budgets, duplicate-call and no-progress protection |
+| TaskGraph and DAG scheduling | Implemented | Durable Node, dependency, Gate, Attempt, parallel ready-node scheduling, and blocked propagation |
+| Evidence Gate | Implemented | Factual completion requires successful non-reference Tool Observation and contract checks |
+| Independent Verifier | Implemented | Verifier uses a separate execution context, re-queries evidence, and submits a structured verdict |
+| Recovery | Partial | Replays the Root plan and reuses stable completed nodes; does not resume inside a model/tool call or directly from every persisted Ready Node |
+| Context compaction | Implemented | Persists an extractive summary plus recent turns while retaining raw conversation messages |
+| Multi-MCP isolation | Implemented | Required/optional server behavior, globally unique tool names, and Agent/Skill allowlist intersection |
+| Human approval | Not implemented | `awaiting_approval` is a reserved domain state only; there is no approval API or transition workflow |
+| Write operations and idempotency | Not implemented | Current safety and recovery claims apply to read-only analysis |
+| Identity, tenant isolation, and compliance audit | Not implemented | These are intentionally outside the current execution-kernel scope |
+| Exact distributed resume | Not implemented | SQLite and in-process scheduling are not a cross-host durable queue |
+
+“确定性 Gate”表示状态、证据、依赖和契约检查由代码执行，不表示系统已经形式化证明了业务结论。
+因此当前可以称为“完整任务级 Harness”，但不能称为“功能完备的企业 Agent 平台”。
+
+## Git Evolution
+
+| Commit | Evolution | Architectural meaning |
+|---|---|---|
+| `4fd8492` | Initial placeholder | 仓库占位，不代表有效架构能力 |
+| `ee55b76` | Project initialization | 建立 FastAPI/SSE、分层 Runtime、ReAct/LangGraph、Orchestrator/Analyst/Verifier、SQLite 和 MCP 基线 |
+| `9e67f80` | Skill orchestration and live evaluation | 强化严格路由、Tool 证据、结构化澄清，并加入 GPT-5.4 联调与评测套件 |
+| `be4427b` | Task-level Harness kernel | 引入 TaskGraph/Node/Gate/Attempt、DAG 调度、独立验证、恢复复用、输入绑定和 Acceptance Contract |
+
+这不是按提交消息推测的路线图；完整设计文档同时使用对应提交的代码 diff 与当前代码交叉验证。
 
 ## API Flow
 
@@ -293,8 +343,11 @@ curl -s 'http://127.0.0.1:8090/api/v1/runs/{run_id}/loop-checkpoint?kind=worker_
 
 Snapshots contain counts, elapsed time, budgets, status, stop reason, and an Action hash. They never
 contain raw Action arguments, credentials, hidden chain-of-thought, or persisted `reasoning_content`.
-Checkpoint persistence currently supports progress, audit, and diagnosis; automatic crash resume is
-not yet implemented. See [Loop Engineering Design](../../doc/loop-engineering-design.md).
+A Loop checkpoint is observation and diagnosis state, not a continuation of hidden model execution.
+Runtime recovery instead replays the Root orchestration and reuses completed nodes whose persisted
+identity and result remain stable. Exact continuation from a model/tool boundary, or direct resume from
+an arbitrary persisted Ready Node, is not implemented. See
+[Task-level Harness Complete Design](../../doc/task-level-harness-design.md#15-恢复语义).
 
 Framework alternatives:
 
@@ -308,9 +361,10 @@ export NINO_AGENT_ENGINE=langgraph
 export NINO_MODEL_ADAPTER=native
 ```
 
-Start with native + lightweight to prove model tool-calling and business answers. Switch to
-LangGraph when checkpointing, branching, approval nodes, or resumable workflows become real
-requirements. LangChain is useful for its provider integrations, but is not required by the core.
+Start with native + lightweight to prove model tool-calling and business answers. LangGraph is an
+optional implementation of the Worker model/tool state graph; it is not the durable macro TaskGraph
+and selecting it does not by itself provide approval or exact crash resume. LangChain is useful for
+provider integrations, but is not required by the core.
 
 ## Skills, References, and Agents
 
@@ -330,18 +384,25 @@ Skill references are declared in `skill.json` and loaded only through
 enforces directory containment, file existence, a character budget, and emits
 `reference_loaded` with the document SHA256.
 
-The primary `nino.orchestrator` is business-neutral and strict-scope. Input that does not match a
-registered Skill is rejected before a model call. Matched work must use the internal
-`nino_runtime_dispatch_agent(agent_id, skill_id, task, context)` tool. The selected specialist receives
-a fresh context, loads the chosen Skill and References, and alone receives its approved MCP tools.
+The primary `nino.orchestrator` is business-neutral and strict-scope. Routing first performs
+deterministic exclusion and keyword recall. Keyword matches directly constrain the candidate catalog;
+when no keyword matches, only Skills with `semantic_fallback=true` may enter model-assisted routing.
+The Orchestrator must then structurally dispatch, request clarification, or reject the request.
+Dispatch uses the internal
+`nino_runtime_dispatch_agent(agent_id, skill_id, task, context, depends_on, input_bindings, acceptance_contract)`
+tool. The selected specialist receives a fresh context, loads the chosen Skill and References, and
+alone receives its approved MCP tools.
 Child model/reference/tool events are folded into the parent Run with `parent_run_id`, `child_run_id`,
 `agent_id`, and `skill_id`. A Worker may produce a factual final answer only after a successful Tool
 Observation; missing input must use the validated `nino_runtime_request_clarification` Action rather
 than plain assistant text. The demo phrase
-`复杂统计 2026 年 7 月毛利并核对结论` exercises analyst followed by verifier; a general question
-exercises deterministic `OUT_OF_SCOPE` rejection without calling the model.
+`复杂统计 2026 年 7 月毛利并核对结论` exercises analyst followed by verifier. A general question can
+enter the opt-in semantic fallback path and must still finish through a validated structured rejection;
+it is not accurate to promise that every unmatched request is rejected before any model call.
 
 ## Tests
+
+The `be4427b` code baseline passed 62 Python unit tests. Run the suite after implementation changes:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

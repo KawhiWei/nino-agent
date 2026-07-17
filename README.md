@@ -1,12 +1,33 @@
 # Nino Agent
 
-Nino Agent 是一个 API-first、多语言可演进的 Agent Harness 项目。当前可执行版本使用 Python
-3.12，提供通用 Orchestrator、受控 Specialist ReAct Worker、共享 Agent/Skill 契约、多 MCP
-ToolProvider、SQLite 多轮会话和 Loop Engineering。独立的 .NET MCP Server 提供演示数据能力。
+Nino Agent 是一个 API-first、多语言可演进的任务级 Agent Harness 项目。它使用语言无关的共享契约
+描述 Agent、Skill、TaskGraph 和执行边界，再由不同语言实现 Runtime 与基础设施 Adapter。当前唯一
+可执行的 Agent Runtime 使用 Python 3.12；独立的 .NET MCP Server 提供演示数据能力。
 
 当前版本：`0.13.0`。
 
-## 当前能力
+当前最准确的产品定位是：
+
+> 一个支持持久化任务图、确定性证据门禁、独立验证和故障恢复的只读数据分析 Harness。
+
+完整的设计动机、代码映射、执行流程、恢复边界和 Git 演进见
+[任务级 Harness 完整设计](./doc/task-level-harness-design.md)。
+
+## 多语言实现状态
+
+| Component | Status | Responsibility |
+|---|---|---|
+| `agent/shared` | 已实现 | 跨语言 Agent、Skill、Reference、TaskGraph 和 JSON Schema 契约，是能力定义的唯一事实源 |
+| `agent/python` | 已实现 | 当前唯一可执行 Agent Runtime，承载 REST/SSE、Harness、TaskGraph、Worker 和 SQLite Adapter |
+| `mcp/dotnet` | 已实现 | 独立的数据访问 MCP Server，不是 .NET Agent Runtime |
+| `agent/dotnet` | 预留 | 未来可基于共享契约实现 .NET Agent Runtime |
+| `agent/nodejs` | 预留 | 未来可基于共享契约实现 Node.js Agent Runtime |
+| `web` | 未实现 | 未来客户端入口；当前 App、Web、Desktop 均通过 REST + SSE 接入 |
+
+多语言指的是核心领域契约和行为可以由多种语言实现，不表示当前已经存在多个等价 Runtime。新的语言
+实现必须遵守共享 Schema、状态转换、Gate、事件和 Tool 权限语义，而不是仅复刻 HTTP 接口。
+
+## 当前 Python Runtime 能力
 
 - FastAPI REST + SSE，不依赖 CLI 作为产品入口。
 - 严格 Skill 白名单的 `nino.orchestrator`；确定性排除优先，关键词未命中时仅在 opt-in Skill 中执行
@@ -82,10 +103,10 @@ Worker ReAct Loop
 主模型只看到候选能力摘要和 `nino_runtime_dispatch_agent`，看不到业务 MCP Tools。选中的
 Specialist 才加载完整 Skill、References 和白名单内 MCP schema。
 
-严格边界由 Harness 执行：先应用 `excluded_intent_keywords`，再匹配 `intent_keywords`；未命中时不调用模型并产生
-`policy_rejected(OUT_OF_SCOPE)`；命中后主模型不得零 dispatch 直接回答；Worker 没有成功 Tool
-Observation 时只能返回不超过 500 字符且包含明确补充信息要求的澄清问题。父 Orchestrator 只有
-至少一个子 Agent 成功完成后才能生成最终答案。
+严格边界由 Harness 执行：先应用 `excluded_intent_keywords`，再匹配 `intent_keywords`。关键词命中
+时直接约束候选目录；未命中时，只有声明 `semantic_fallback=true` 的 Skill 可以进入模型辅助路由。
+Orchestrator 必须通过结构化 Action 完成 dispatch、clarification 或 rejection，不能绕过 Harness 直接
+回答。Worker 没有成功 Tool Observation 时不能输出事实性结论；缺少输入时必须请求结构化澄清。
 
 分析 Agent 成功并不直接计为 Orchestrator 成功。Harness 会自动创建依赖于分析 Node 的 Verification
 Node，Verifier 使用相同 Skill 但独立重新查询；只有调用
@@ -120,7 +141,8 @@ GET /api/v1/runs/{run_id}/task-graph/gates
 GET /api/v1/runs/{run_id}/task-graph/attempts
 ```
 
-Loop 详细状态机、预算和恢复边界见 [Loop Engineering 设计](./doc/loop-engineering-design.md)。
+Loop 状态机、预算、TaskGraph、Gate、Verifier 与恢复语义统一见
+[任务级 Harness 完整设计](./doc/task-level-harness-design.md)。
 
 ## 目录
 
@@ -140,7 +162,7 @@ nino-agent/
 └── .env.example
 ```
 
-Python 内部层次：
+当前 Python Runtime 内部层次：
 
 ```text
 agent/python/src/
@@ -154,7 +176,7 @@ agent/python/src/
 
 ## Shared 扩展规则
 
-`agent/shared` 是跨语言唯一事实源：
+`agent/shared` 是跨语言能力定义的唯一事实源：
 
 ```text
 shared/
@@ -170,7 +192,8 @@ shared/
 3. MCP Tool：真正访问外部数据或系统。
 4. 测试：能力路由、权限拒绝、Tool 结果和事件链。
 
-主 Orchestrator 不追加业务名称。Runtime 根据新 Agent + Skill 自动生成 Capability Catalog。
+主 Orchestrator 不追加业务名称。各语言 Runtime 应根据同一套 Agent + Skill 契约生成 Capability
+Catalog，并遵守相同的路由、权限、Gate 和停止语义。
 
 Skill 通过 `assurance.required_evaluators` 声明验收角色，而不是把 Verifier 写死在 Runtime：
 
@@ -255,9 +278,9 @@ cd agent/python
   --output ../../nino-agent-storage/live-benchmark.json
 ```
 
-题集、评分维度和单题执行方式见 [Live Agent Benchmark](./agent/python/evals/README.md)。
-标准题库蒸馏、版本和多语言复用规范见
-[Skill 标准题库设计](./doc/skill-question-bank-design.md)。
+题集、评分维度和单题执行方式见 [Live Agent Benchmark](./agent/python/evals/README.md)。标准题库属于
+`agent/shared/skills/<skill>/evals/`，由所有语言实现共享；总体测试策略见
+[任务级 Harness 完整设计](./doc/task-level-harness-design.md#21-测试策略和证据)。
 
 验收不仅检查最终文本，还必须检查：
 
@@ -274,10 +297,6 @@ orchestration loop checkpoint
 
 ## 权威文档
 
-- [Loop Engineering 设计](./doc/loop-engineering-design.md)
-- [通用 Orchestrator 设计](./doc/generic-orchestrator-design.md)
-- [Runtime 调用链与多 MCP](./doc/agent-runtime-call-chain.md)
-- [Python Runtime API](./doc/python-agent-runtime-api.md)
-- [多语言分层规范](./doc/multi-language-agent-architecture.md)
-- [Skill 标准题库设计](./doc/skill-question-bank-design.md)
+- [任务级 Harness 完整设计](./doc/task-level-harness-design.md)
+- [Python Runtime README](./agent/python/README.md)
 - [gpt-5.4 启动与验收](./doc/gpt-5.4-agent-runbook.md)
