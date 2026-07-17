@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nino-agent.local/schemas/agent.schema.json",
+  "title": "Nino Agent Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "mode", "instructions", "allowed_skills", "allowed_tools", "max_steps"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
+    "mode": { "enum": ["primary", "specialist"] },
+    "instructions": { "type": "string", "minLength": 1 },
+    "allowed_skills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "allowed_tools": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "allowed_delegates": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "discover_delegates": { "type": "boolean", "default": false },
+    "loop": { "$ref": "#/$defs/loopBudget" },
+    "max_steps": { "type": "integer", "minimum": 1, "maximum": 20 },
+    "max_delegation_depth": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 }
+  },
+  "$defs": {
+    "loopBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_actions": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "max_consecutive_failures": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "max_no_progress_steps": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    }
+  }
+}

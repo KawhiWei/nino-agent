@@ -1,0 +1,89 @@
+services:
+  agent-runtime:
+    build:
+      context: .
+      dockerfile: agent/python/Dockerfile
+      args:
+        NINO_PIP_EXTRAS: ${NINO_PIP_EXTRAS:-}
+        NINO_RUNTIME_BASE_IMAGE: ${NINO_RUNTIME_BASE_IMAGE:-python:3.12-slim}
+    container_name: nino-agent-runtime
+    environment:
+      NINO_RUNTIME_MODE: ${NINO_RUNTIME_MODE:-demo}
+      NINO_AGENT_ENGINE: ${NINO_AGENT_ENGINE:-lightweight}
+      NINO_MODEL_ADAPTER: ${NINO_MODEL_ADAPTER:-native}
+      NINO_MODEL_NAME: ${NINO_MODEL_NAME:-}
+      NINO_MODEL_API_KEY: ${NINO_MODEL_API_KEY:-}
+      NINO_MODEL_BASE_URL: ${NINO_MODEL_BASE_URL:-https://api.openai.com/v1}
+      NINO_MODEL_THINKING: ${NINO_MODEL_THINKING:-}
+      NINO_MODEL_REASONING_EFFORT: ${NINO_MODEL_REASONING_EFFORT:-}
+      NINO_MCP_URL: http://nino-data:8091/mcp
+      NINO_MCP_SERVERS: ${NINO_MCP_SERVERS:-}
+      NINO_MAX_CONCURRENT_RUNS: ${NINO_MAX_CONCURRENT_RUNS:-4}
+      NINO_STORAGE_PATH: /app/storage/nino-agent.db
+      NINO_MODEL_CONTEXT_TOKENS: ${NINO_MODEL_CONTEXT_TOKENS:-128000}
+      NINO_CONTEXT_RESERVED_TOKENS: ${NINO_CONTEXT_RESERVED_TOKENS:-32000}
+      NINO_CONTEXT_RECENT_TOKENS: ${NINO_CONTEXT_RECENT_TOKENS:-48000}
+      NINO_CONTEXT_SUMMARY_TOKENS: ${NINO_CONTEXT_SUMMARY_TOKENS:-12000}
+      NINO_LOOP_HARD_MAX_STEPS: ${NINO_LOOP_HARD_MAX_STEPS:-8}
+      NINO_LOOP_HARD_MAX_ACTIONS: ${NINO_LOOP_HARD_MAX_ACTIONS:-32}
+      NINO_LOOP_HARD_TIMEOUT_SECONDS: ${NINO_LOOP_HARD_TIMEOUT_SECONDS:-300}
+      NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES: ${NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES:-3}
+      NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS: ${NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS:-3}
+      NINO_CORS_ORIGINS: ${NINO_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      NINO_SKILLS_PATH: /app/shared/skills
+      NINO_AGENTS_PATH: /app/shared/agents
+    ports:
+      - "${NINO_RUNTIME_PORT:-8090}:8090"
+    volumes:
+      - ./nino-agent-storage:/app/storage
+    init: true
+    depends_on:
+      - nino-data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    container_name: nino-data-postgres
+    environment:
+      POSTGRES_DB: nino_data_demo
+      POSTGRES_USER: nino
+      POSTGRES_PASSWORD: nino_dev_password
+      TZ: Asia/Shanghai
+    ports:
+      - "${NINO_DB_PORT:-55432}:5432"
+    volumes:
+      - nino-data-postgres-data:/var/lib/postgresql/data
+      - ./database/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./database/seeds/001_demo_data.sql:/docker-entrypoint-initdb.d/002_demo_data.sql:ro
+      - ./database/migrations/002_mcp_readonly.sql:/docker-entrypoint-initdb.d/003_mcp_readonly.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nino -d nino_data_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  nino-data:
+    build:
+      context: .
+      dockerfile: mcp/dotnet/Dockerfile
+    container_name: nino-data
+    environment:
+      NINO_DATA_MCP_URLS: http://0.0.0.0:8091
+      NINO_DATA_DB_CONNECTION_STRING: Host=db;Port=5432;Database=nino_data_demo;Username=nino_data_readonly;Password=nino_data_readonly_password
+    ports:
+      - "${NINO_DATA_MCP_PORT:-8091}:8091"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nino-data-postgres-data:

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nino.Data.Mcp/Nino.Data.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nino.Data.Mcp.Tests/Nino.Data.Mcp.Tests.csproj" />
+  </Folder>
+</Solution>

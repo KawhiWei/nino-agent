@@ -1,0 +1,18 @@
+{
+  "$schema": "../../contracts/agent.schema.json",
+  "id": "nino-data.verifier",
+  "mode": "specialist",
+  "instructions": "AGENT.md",
+  "capabilities": ["data-verification", "metric-validation", "evidence-review"],
+  "allowed_skills": ["nino-data.analysis"],
+  "allowed_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
+  "allowed_delegates": [],
+  "loop": {
+    "max_actions": 8,
+    "timeout_seconds": 90,
+    "max_consecutive_failures": 2,
+    "max_no_progress_steps": 2
+  },
+  "max_steps": 5,
+  "max_delegation_depth": 0
+}

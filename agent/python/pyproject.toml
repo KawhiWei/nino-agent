@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nino-agent-runtime"
+version = "0.10.0"
+description = "Language-isolated Python ReAct runtime for Nino Agent"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116,<1.0",
+    "httpx>=0.28,<1.0",
+    "PyYAML>=6.0,<7.0",
+    "uvicorn>=0.35,<1.0"
+]
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=1.0,<2.0", "langchain-openai>=1.0,<2.0"]
+langgraph = ["langgraph>=1.0,<2.0"]
+frameworks = [
+    "langchain-core>=1.0,<2.0",
+    "langchain-openai>=1.0,<2.0",
+    "langgraph>=1.0,<2.0"
+]
+test = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["bootstrap", "demo", "version"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["api*", "framework*", "harness*", "infrastructure*", "runtime*"]
