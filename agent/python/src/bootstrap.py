@@ -29,7 +29,7 @@ class RuntimeSettings:
     mcp_servers: tuple[McpServerConfig, ...] = ()
     loop_hard_max_steps: int = 8
     loop_hard_max_actions: int = 32
-    loop_hard_timeout_seconds: int = 300
+    loop_hard_timeout_seconds: int = 3600
     loop_hard_max_consecutive_failures: int = 3
     loop_hard_max_no_progress_steps: int = 3
     graph_max_parallel_nodes: int = 4
@@ -53,7 +53,7 @@ class RuntimeSettings:
             ),
             loop_hard_max_steps=int(os.getenv("NINO_LOOP_HARD_MAX_STEPS", "8")),
             loop_hard_max_actions=int(os.getenv("NINO_LOOP_HARD_MAX_ACTIONS", "32")),
-            loop_hard_timeout_seconds=int(os.getenv("NINO_LOOP_HARD_TIMEOUT_SECONDS", "300")),
+            loop_hard_timeout_seconds=int(os.getenv("NINO_LOOP_HARD_TIMEOUT_SECONDS", "3600")),
             loop_hard_max_consecutive_failures=int(
                 os.getenv("NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES", "3")
             ),

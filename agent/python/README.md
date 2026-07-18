@@ -295,7 +295,7 @@ curl -s -X POST http://127.0.0.1:8090/api/v1/runs/{run_id}/cancel
 | `NINO_CONTEXT_SUMMARY_TOKENS` | 摘要预算 | 最多持久化约 12K token 的旧历史摘要 |
 | `NINO_LOOP_HARD_MAX_STEPS` | 正整数 | 模型决策步骤硬上限，默认 8 |
 | `NINO_LOOP_HARD_MAX_ACTIONS` | 1-100 | 规划和 Tool Action 硬上限，默认 32 |
-| `NINO_LOOP_HARD_TIMEOUT_SECONDS` | 1-3600 | Runtime Loop 超时硬上限，默认 300 秒 |
+| `NINO_LOOP_HARD_TIMEOUT_SECONDS` | 1-3600 | Runtime Loop 安全兜底上限，默认 3600 秒；正常停止由步骤、失败和无进展预算控制 |
 | `NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES` | 1-20 | 连续失败硬上限，默认 3 |
 | `NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS` | 1-20 | 无进展步骤硬上限，默认 3 |
 | `NINO_GRAPH_MAX_PARALLEL_NODES` | 正整数 | 进程内 Task Node 全局并发上限 |

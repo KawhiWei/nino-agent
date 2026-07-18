@@ -1,5 +1,11 @@
 *.db
 *.db-shm
 *.db-wal
+*.db.corrupt-*
+*.db.malformed-*
+*.db-shm.corrupt-*
+*.db-shm.malformed-*
+*.db-wal.corrupt-*
+*.db-wal.malformed-*
 !.gitignore
 !README.md

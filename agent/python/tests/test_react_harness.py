@@ -127,6 +127,17 @@ class ReActHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(RunStatus.FAILED, result.status)
         self.assertEqual("DUPLICATE_TOOL_CALL", result.error_code)
 
+    def test_tool_input_summary_keeps_diagnostics_and_redacts_secrets(self) -> None:
+        summary = ReActHarness._tool_input_summary({
+            "orderSerialId": "DEMO-202607-001",
+            "filters": {"month": "2026-07", "api_key": "nested-secret"},
+            "accessToken": "top-secret",
+        })
+
+        self.assertEqual("DEMO-202607-001", summary["orderSerialId"])
+        self.assertEqual({"month": "2026-07"}, summary["filters"])
+        self.assertNotIn("accessToken", summary)
+
     async def test_stops_at_skill_step_budget(self) -> None:
         model = QueueModel(ModelTurn(tool_calls=(ToolCall("call-1", "allowed_tool", {}),)))
         result = await ReActHarness(

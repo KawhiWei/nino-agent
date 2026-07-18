@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence
 from uuid import uuid4
@@ -292,7 +293,11 @@ class ReActHarness:
                     if violation is not None:
                         return await fail(violation)
                     invoked.add(signature)
-                    await emit("tool_started", step=step, tool=call.name, call_id=call.id)
+                    input_summary = self._tool_input_summary(call.arguments)
+                    await emit(
+                        "tool_started", step=step, tool=call.name, call_id=call.id,
+                        input_summary=input_summary,
+                    )
                     if call.name == REFERENCE_TOOL_NAME:
                         try:
                             result, loaded = self._references.invoke(skill, call)
@@ -355,6 +360,7 @@ class ReActHarness:
                         call_id=call.id,
                         is_error=result.is_error,
                         truncated=len(result.content) > len(content),
+                        input_summary=input_summary,
                     )
                     messages.append(
                         Message(role="tool", content=content, tool_call_id=call.id)
@@ -540,6 +546,37 @@ class ReActHarness:
     def _tool_signature(call: ToolCall) -> str:
         arguments = json.dumps(call.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return f"{call.name}:{arguments}"
+
+    @staticmethod
+    def _tool_input_summary(arguments: Mapping[str, Any]) -> dict[str, Any]:
+        sensitive_markers = ("password", "secret", "token", "api_key", "apikey", "auth", "credential")
+
+        def sanitize(value: Any, depth: int = 0) -> Any:
+            if isinstance(value, str):
+                return value if len(value) <= 160 else f"{value[:157]}..."
+            if value is None or isinstance(value, (bool, int, float)):
+                return value
+            if depth >= 2:
+                return "[复杂参数]"
+            if isinstance(value, Mapping):
+                return {
+                    str(key): sanitize(item, depth + 1)
+                    for key, item in list(value.items())[:8]
+                    if not any(marker in str(key).lower() for marker in sensitive_markers)
+                }
+            if isinstance(value, (list, tuple)):
+                return [sanitize(item, depth + 1) for item in value[:5]]
+            return str(value)[:160]
+
+        summary: dict[str, Any] = {}
+        for key, value in list(arguments.items())[:8]:
+            name = str(key)
+            if any(marker in name.lower() for marker in sensitive_markers):
+                continue
+            summary[name] = sanitize(value)
+            if isinstance(value, (list, tuple)):
+                summary[f"{name}_count"] = len(value)
+        return summary
 
     @staticmethod
     async def _failure(

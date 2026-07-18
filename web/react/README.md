@@ -6,6 +6,10 @@
 Run 事件流。页面刷新或网络连接中断后，会查询当前会话的 active Run，并通过
 `GET /api/v1/runs/{id}/events/stream` 重放事件、继续接收结果，不会重复提交用户消息。
 
+运行期间，页面会把 SSE 中的规划、数据查询、子 Agent、独立验证、修正和终态事件展示为
+实时执行进度。最终回答通过 `answer_delta` 增量渲染；`run_result` 只负责确认最终完整答案与
+`completed/failed/cancelled` 状态，不需要等待任务结束后再一次性显示文本。
+
 ## 本地运行
 
 先启动 Nino Python Runtime（默认 `http://127.0.0.1:8090`），再启动前端：
