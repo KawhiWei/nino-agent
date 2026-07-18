@@ -1,4 +1,4 @@
-# Python Agent Runtime API v0.13
+# Python Agent Runtime API v0.14
 
 面向 App、Web 和 Desktop 的 API-first Python Agent Runtime，以 REST + SSE 作为当前产品入口。
 CLI 不是产品入口，ACP 也不在当前实现范围内。
@@ -7,9 +7,11 @@ CLI 不是产品入口，ACP 也不在当前实现范围内。
 
 Nino Agent 当前最准确的定位是：
 
-> 一个支持持久化任务图、确定性证据门禁、独立验证和故障恢复的只读数据分析 Harness。
+> 一个以四个业务中立标准 Agent 为骨架，支持持久化任务图、确定性证据门禁、独立验证和故障恢复的
+> 只读业务分析 Harness。
 
-它不是简单的 Prompt + Model 包装。模型负责语义路由、任务拆解和分析表达；Harness 负责能力边界、
+它不是简单的 Prompt + Model 包装。Planner 模型负责候选任务拆解，Worker 模型负责局部分析，
+Orchestrator 模型只负责最终归并；Harness 负责能力边界、
 执行预算、依赖调度、Tool 证据、完成条件、持久化状态和恢复决策。一次模型回答不等于任务完成，只有
 TaskGraph 中必需节点及其 Gate 均满足后，Root Run 才能完成。
 
@@ -26,16 +28,18 @@ FastAPI REST + SSE Host
     -> AgentRuntimeService
         -> AgentHarness port
             -> OrchestratorHarness (business-neutral control plane)
-            -> dynamic Agent + Skill capability catalog
-            -> ReActHarness (lightweight) or LangGraphReActHarness worker
-            -> specialist run(...) -> repeated step(HarnessStepState)
-            -> AgentRegistry (generic primary + discovered specialists)
+                -> deterministic route and candidate filtering
+                -> PlannerHarness (candidate TaskGraph proposal only)
+                -> TaskGraphScheduler (DAG validation and Ready/Blocked decisions)
+                -> ReActHarness or LangGraphReActHarness (Analyst/Verifier workers)
+                -> final reconciliation with no tools
+            -> AgentRegistry (four business-neutral standard Agents)
+            -> SkillRegistry (dynamic business capability catalog)
             -> ReferenceProvider (approved on-demand context)
             -> ChatModel port (native OpenAI-compatible or LangChain)
             -> ToolProvider port
                 -> McpServerRegistry
                     -> one McpHttpToolClient per configured server
-            -> shared SkillRegistry
         -> AgentRepository port
             -> SqliteAgentRepository (default, persistent)
             -> InMemoryAgentRepository (tests/explicit injection)
@@ -47,9 +51,11 @@ Runtime 管理 Conversation、Run、上下文、取消和事件；Harness 管理
 ReAct 循环。Harness 不选择 MCP transport，而是调用 Framework `ToolProvider` Port。live 模式下
 `McpServerRegistry` 聚合并路由多个 MCP Streamable HTTP Server。
 
-Orchestrator 的路由先执行确定性排除和关键词召回；未命中时只允许显式 opt-in Skill 参与受控语义
-判定。Graph 的 `depends_on` 表达控制依赖，`input_bindings` 表达结构化结果传递。每个 dispatch 的
-Acceptance Contract 同时进入 Worker、Evaluator 和持久化 TaskNode。
+Orchestrator 先执行确定性排除、关键词召回和候选 Agent/Skill 匹配，再调用 Planner。Planner 每个
+revision 只做一次模型决策，通过结构化 Action 提交一个或多个候选 Specialist 节点，不能执行 MCP、
+持久化 Graph、调度 Worker 或生成最终答案。Orchestrator 校验 Agent/Skill pair、Node ID、DAG、
+binding 和 Acceptance Contract 后才发出 `graph_planned/graph_reconciled`。`depends_on` 表达控制依赖，
+`input_bindings` 表达结构化结果传递。
 
 ## Project Structure and Layer Responsibilities
 
@@ -67,7 +73,8 @@ agent/python/
 │   │   ├── task_graph.py          # Durable Graph projection, Node claim and gate completion
 │   │   └── context.py             # Token budgets and context compaction
 │   ├── harness/                   # Agent reasoning and policy
-│   │   ├── orchestrator.py        # Generic capability routing and structured dispatch
+│   │   ├── orchestrator.py        # Sole control plane: validate, persist, schedule, reconcile
+│   │   ├── planning.py            # Advisory Planner boundary and candidate Graph Action
 │   │   ├── scheduler.py           # Deterministic DAG validation and ready/blocked selection
 │   │   ├── validation.py          # Persisted TaskGraph consistency lint
 │   │   ├── loop.py                # Loop budgets, progress accounting and stop policy
@@ -160,14 +167,16 @@ Task-level Harness architecture, execution semantics, recovery boundaries, and G
 | Capability | Status | Current meaning |
 |---|---|---|
 | REST + SSE Runtime | Implemented | Durable Conversation/Run, replayable events, cancellation, and query APIs |
-| Dynamic Agent + Skill routing | Implemented | Deterministic exclusion and keyword recall; opt-in semantic fallback when keywords do not match |
-| Specialist ReAct execution | Implemented | Fresh context, Tool allowlist, loop budgets, duplicate-call and no-progress protection |
+| Four standard Agents | Implemented | Business-neutral Orchestrator, Planner, Analyst, and Verifier with enforced role boundaries |
+| Dynamic Skill routing | Implemented | Deterministic exclusion and keyword recall; opt-in semantic fallback when keywords do not match |
+| Advisory Planner | Implemented | Proposes candidate nodes only; no MCP, persistence, scheduling, or final-answer authority |
+| Generic Analyst/Verifier | Implemented | Fresh selected-Skill context, role-policy Tool filtering, and no business-specific Agent cloning |
 | TaskGraph and DAG scheduling | Implemented | Durable Node, dependency, Gate, Attempt, parallel ready-node scheduling, and blocked propagation |
 | Evidence Gate | Implemented | Factual completion requires successful non-reference Tool Observation and contract checks |
 | Independent Verifier | Implemented | Verifier uses a separate execution context, re-queries evidence, and submits a structured verdict |
 | Recovery | Partial | Replays the Root plan and reuses stable completed nodes; does not resume inside a model/tool call or directly from every persisted Ready Node |
 | Context compaction | Implemented | Persists an extractive summary plus recent turns while retaining raw conversation messages |
-| Multi-MCP isolation | Implemented | Required/optional server behavior, globally unique tool names, and Agent/Skill allowlist intersection |
+| Multi-MCP isolation | Implemented | Required/optional servers, unique Tool names, and MCP discovery ∩ Skill allowlist ∩ Agent role policy |
 | Human approval | Not implemented | `awaiting_approval` is a reserved domain state only; there is no approval API or transition workflow |
 | Write operations and idempotency | Not implemented | Current safety and recovery claims apply to read-only analysis |
 | Identity, tenant isolation, and compliance audit | Not implemented | These are intentionally outside the current execution-kernel scope |
@@ -181,9 +190,11 @@ Task-level Harness architecture, execution semantics, recovery boundaries, and G
 | Commit | Evolution | Architectural meaning |
 |---|---|---|
 | `4fd8492` | Initial placeholder | 仓库占位，不代表有效架构能力 |
-| `ee55b76` | Project initialization | 建立 FastAPI/SSE、分层 Runtime、ReAct/LangGraph、Orchestrator/Analyst/Verifier、SQLite 和 MCP 基线 |
+| `ee55b76` | Project initialization | 建立 FastAPI/SSE、分层 Runtime、ReAct/LangGraph、初始 Orchestrator/Analyst/Verifier、SQLite 和 MCP 基线 |
 | `9e67f80` | Skill orchestration and live evaluation | 强化严格路由、Tool 证据、结构化澄清，并加入 GPT-5.4 联调与评测套件 |
 | `be4427b` | Task-level Harness kernel | 引入 TaskGraph/Node/Gate/Attempt、DAG 调度、独立验证、恢复复用、输入绑定和 Acceptance Contract |
+| `f13ed93` | Real data analysis and fixed evaluation | 完善 PostgreSQL 12.18 数据集、标准题库、真实分析链路和小规模 Eval |
+| `0.14.0 current design` | Planner and generic Agent separation | 拆出 `nino.planner`，将 Analyst/Verifier 去业务化，并保持 Orchestrator 为唯一控制面 |
 
 这不是按提交消息推测的路线图；完整设计文档同时使用对应提交的代码 diff 与当前代码交叉验证。
 
@@ -230,7 +241,7 @@ curl -s -X POST http://127.0.0.1:8090/api/v1/runs/{run_id}/cancel
 |---|---|---|
 | `GET` | `/health` | Liveness and runtime mode |
 | `GET` | `/api/v1/skills` | Discover loaded Skills |
-| `GET` | `/api/v1/agents` | Discover primary and specialist Agents |
+| `GET` | `/api/v1/agents` | Discover all four Agents and their risk/capability/tool policies |
 | `GET` | `/api/v1/mcp/servers` | Read multi-MCP discovery status; `?discover=true` triggers discovery |
 | `POST` | `/api/v1/conversations` | Create a conversation |
 | `GET` | `/api/v1/conversations` | List conversations |
@@ -273,7 +284,7 @@ The API contract does not change when the engine or model adapter changes.
 | `NINO_CONTEXT_RECENT_TOKENS` | recent history budget | Keep the newest 48K estimated tokens verbatim. |
 | `NINO_CONTEXT_SUMMARY_TOKENS` | compacted history budget | Persist up to 12K estimated tokens of older context. |
 | `NINO_LOOP_HARD_MAX_STEPS` | positive integer | Runtime ceiling for model decisions; default 8. |
-| `NINO_LOOP_HARD_MAX_ACTIONS` | 1-100 | Runtime ceiling for Tool/dispatch actions; default 32. |
+| `NINO_LOOP_HARD_MAX_ACTIONS` | 1-100 | Runtime ceiling for planning and Tool actions; default 32. |
 | `NINO_LOOP_HARD_TIMEOUT_SECONDS` | 1-3600 | Runtime Loop timeout ceiling; default 300. |
 | `NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES` | 1-20 | Runtime failure ceiling; default 3. |
 | `NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS` | 1-20 | Runtime no-progress ceiling; default 3. |
@@ -305,11 +316,13 @@ export NINO_MCP_SERVERS='[{"id":"nino-data","url":"http://127.0.0.1:8091/mcp","r
 ```
 
 Tool names must be globally unique. Required-server discovery failure blocks the catalog; optional
-server failure is isolated. Agent and Skill allowlists are applied after Registry discovery.
+server failure is isolated. Skill allowlists and Agent role policies are applied after Registry discovery.
 
-The primary model receives capability metadata and the internal dispatch schema, never business MCP
-tools. After dispatch, the specialist model receives only Skill-and-Agent-approved MCP schemas. Both
-loops retain step budgets, allowlists, duplicate-call protection, cancellation, and result-size limits.
+The Planner receives capability metadata, compact prior node outcomes, conversation history, and the
+internal plan-node schema, never business MCP tools.
+The Orchestrator owns accepted Graph state and receives no planning or business tools during final
+reconciliation. After scheduling, a generic Analyst or Verifier receives only the selected Skill's
+MCP schemas allowed by its read-only role policy.
 
 ## Persistent Follow-up Context
 
@@ -390,14 +403,28 @@ Skill references are declared in `skill.json` and loaded only through
 enforces directory containment, file existence, a character budget, and emits
 `reference_loaded` with the document SHA256.
 
-The primary `nino.orchestrator` is business-neutral and strict-scope. Routing first performs
+The four standard Agents are `nino.orchestrator`, `nino.planner`, `nino.analyst`, and
+`nino.verifier`; all are business-neutral. They map to the code flow as follows:
+
+| Agent | Owns | Must not do |
+|---|---|---|
+| `nino.orchestrator` | Route, validate proposals, emit accepted revisions, schedule, enforce Gates, reconcile final answer | Execute business MCP or delegate Graph Truth |
+| `nino.planner` | Propose bounded candidate nodes, dependencies, bindings, and acceptance contracts | Persist, schedule, execute MCP, or answer the user |
+| `nino.analyst` | Execute one selected read-only Skill and return evidence-grounded Node Result | Plan the root Run or claim independent verification |
+| `nino.verifier` | Independently re-query minimal evidence and submit a structured verdict | Trust Analyst prose as proof or repair its claim |
+
+Routing first performs
 deterministic exclusion and keyword recall. Keyword matches directly constrain the candidate catalog;
 when no keyword matches, only Skills with `semantic_fallback=true` may enter model-assisted routing.
-The Orchestrator must then structurally dispatch, request clarification, or reject the request.
-Dispatch uses the internal
-`nino_runtime_dispatch_agent(agent_id, skill_id, task, context, depends_on, input_bindings, acceptance_contract)`
-tool. The selected specialist receives a fresh context, loads the chosen Skill and References, and
-alone receives its approved MCP tools.
+The Planner proposes bounded TaskGraph nodes, clarification, or rejection. The Orchestrator validates
+the proposal, emits the accepted Graph revision, schedules it, and remains the only Graph control plane.
+Planning uses the internal
+`nino_runtime_submit_task_graph_node(agent_id, skill_id, task, context, depends_on, input_bindings, acceptance_contract)`
+Action. The selected generic Analyst or Verifier receives a fresh context, loads the chosen Skill and
+References, and alone receives its approved MCP tools. Its effective Tool set is discovered MCP tools
+intersected with `Skill.allowed_tools` and Agent role policy. Therefore a compatible new read-only
+business normally adds a Skill, References, MCP integration, fixed question bank, and tests without
+editing or cloning Agent manifests.
 Child model/reference/tool events are folded into the parent Run with `parent_run_id`, `child_run_id`,
 `agent_id`, and `skill_id`. A Worker may produce a factual final answer only after a successful Tool
 Observation; missing input must use the validated `nino_runtime_request_clarification` Action rather
@@ -408,7 +435,7 @@ it is not accurate to promise that every unmatched request is rejected before an
 
 ## Tests
 
-The `be4427b` code baseline passed 62 Python unit tests. Run the suite after implementation changes:
+The current `0.14.0` code passes 62 Python unit tests. Run the suite after implementation changes:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

@@ -153,7 +153,7 @@ def _validate_agent_permissions(skills: SkillRegistry, agents: AgentRegistry) ->
     for skill in skills.skills:
         for kind in skill.required_evaluators:
             found = any(
-                skill.id in agent.allowed_skills
+                agent.accepts_skill(skill)
                 and agent.role == "evaluator" and agent.evaluator_kind == kind
                 for agent in specialists
             )

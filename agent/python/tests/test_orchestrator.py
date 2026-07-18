@@ -193,7 +193,7 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         ).run("Query order DEMO-202607-001")
 
         self.assertEqual(RunStatus.FAILED, result.status)
-        self.assertEqual("DISPATCH_REQUIRED", result.error_code)
+        self.assertEqual("INVALID_PLANNER_OUTPUT", result.error_code)
         self.assertIn("policy_rejected", [event.type for event in result.events])
 
     async def test_excluded_write_intent_is_rejected_before_model_call(self) -> None:
@@ -212,8 +212,8 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         worker = FakeWorker(RunStatus.FAILED)
         model = QueueModel(
             ModelTurn(tool_calls=(ToolCall(
-                "dispatch-1", "nino_runtime_dispatch_agent", {
-                    "agent_id": "nino-data.analyst",
+                "dispatch-1", "nino_runtime_submit_task_graph_node", {
+                    "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis",
                     "task": "Query one order",
                 }
@@ -226,13 +226,13 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         ).run("Query order DEMO-202607-001")
 
         self.assertEqual(RunStatus.FAILED, result.status)
-        self.assertEqual("SUCCESSFUL_DISPATCH_REQUIRED", result.error_code)
+        self.assertEqual("INVALID_PLANNER_OUTPUT", result.error_code)
 
     async def test_dispatches_dynamic_agent_and_skill_pair(self) -> None:
         model = QueueModel(
             ModelTurn(tool_calls=(ToolCall(
-                "dispatch-1", "nino_runtime_dispatch_agent", {
-                    "agent_id": "nino-data.analyst",
+                "dispatch-1", "nino_runtime_submit_task_graph_node", {
+                    "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis",
                     "task": "Query one order",
                 }
@@ -250,15 +250,29 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(worker.calls[0][0].startswith("Query one order\n\n"))
         self.assertEqual("nino-data.analysis", worker.calls[0][1])
         self.assertIn("Acceptance contract:", worker.calls[0][0])
+        self.assertEqual(
+            {"nino_runtime_submit_task_graph_node", "nino_runtime_request_clarification"},
+            {tool.name for tool in model.tools[0]},
+        )
+        self.assertNotIn(
+            "nino_data_get_order_detail", {tool.name for tool in model.tools[0]}
+        )
         self.assertEqual(2, len(worker.calls))
         self.assertIn("Claim to evaluate", worker.calls[1][0])
         self.assertIn("agent_started", [event.type for event in result.events])
-        self.assertEqual("tool", model.messages[1][-1].role)
+        self.assertEqual("system", model.messages[1][-1].role)
+        self.assertEqual((), tuple(model.tools[1]))
+        self.assertIn("successful verified node results", model.messages[1][-1].content)
+        phases = [
+            event.data.get("phase") for event in result.events
+            if event.type == "model_started"
+        ]
+        self.assertEqual(["planning", "reconciliation"], phases)
 
     async def test_rejects_agent_skill_pair_outside_catalog(self) -> None:
         model = QueueModel(ModelTurn(tool_calls=(ToolCall(
-            "dispatch-1", "nino_runtime_dispatch_agent", {
-                "agent_id": "nino-data.analyst",
+            "dispatch-1", "nino_runtime_submit_task_graph_node", {
+                "agent_id": "nino.analyst",
                 "skill_id": "unknown.skill",
                 "task": "Do something",
             }
@@ -274,12 +288,12 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_executes_independent_planned_nodes_in_parallel(self) -> None:
         model = QueueModel(
             ModelTurn(tool_calls=(
-                ToolCall("call-a", "nino_runtime_dispatch_agent", {
-                    "node_id": "summary-a", "agent_id": "nino-data.analyst",
+                ToolCall("call-a", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "summary-a", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Query order A",
                 }),
-                ToolCall("call-b", "nino_runtime_dispatch_agent", {
-                    "node_id": "summary-b", "agent_id": "nino-data.analyst",
+                ToolCall("call-b", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "summary-b", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Query order B",
                 }),
             )),
@@ -303,13 +317,13 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         worker = ConcurrentWorker()
         model = QueueModel(
             ModelTurn(tool_calls=(
-                ToolCall("call-a", "nino_runtime_dispatch_agent", {
-                    "node_id": "upstream", "agent_id": "nino-data.analyst",
+                ToolCall("call-a", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "upstream", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Query upstream",
                 }),
-                ToolCall("call-b", "nino_runtime_dispatch_agent", {
+                ToolCall("call-b", "nino_runtime_submit_task_graph_node", {
                     "node_id": "downstream", "depends_on": ["upstream"],
-                    "agent_id": "nino-data.analyst", "skill_id": "nino-data.analysis",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                     "task": "Analyze downstream",
                 }),
             )),
@@ -327,12 +341,12 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["Query upstream", "Analyze downstream"], analyst_tasks)
 
         cycle_model = QueueModel(ModelTurn(tool_calls=(
-            ToolCall("cycle-a", "nino_runtime_dispatch_agent", {
-                "node_id": "a", "depends_on": ["b"], "agent_id": "nino-data.analyst",
+            ToolCall("cycle-a", "nino_runtime_submit_task_graph_node", {
+                "node_id": "a", "depends_on": ["b"], "agent_id": "nino.analyst",
                 "skill_id": "nino-data.analysis", "task": "A",
             }),
-            ToolCall("cycle-b", "nino_runtime_dispatch_agent", {
-                "node_id": "b", "depends_on": ["a"], "agent_id": "nino-data.analyst",
+            ToolCall("cycle-b", "nino_runtime_submit_task_graph_node", {
+                "node_id": "b", "depends_on": ["a"], "agent_id": "nino.analyst",
                 "skill_id": "nino-data.analysis", "task": "B",
             }),
         )))
@@ -348,17 +362,17 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_dependency_result_is_bound_into_downstream_context(self) -> None:
         model = QueueModel(
             ModelTurn(tool_calls=(
-                ToolCall("up", "nino_runtime_dispatch_agent", {
-                    "node_id": "upstream", "agent_id": "nino-data.analyst",
+                ToolCall("up", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "upstream", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Query upstream",
                 }),
-                ToolCall("down", "nino_runtime_dispatch_agent", {
+                ToolCall("down", "nino_runtime_submit_task_graph_node", {
                     "node_id": "downstream", "depends_on": ["upstream"],
                     "input_bindings": [{
                         "name": "source_summary", "source_node_id": "upstream",
                         "selector": "summary",
                     }],
-                    "agent_id": "nino-data.analyst", "skill_id": "nino-data.analysis",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                     "task": "Analyze upstream result",
                 }),
             )),
@@ -378,17 +392,17 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_structured_outputs_can_be_selected_by_input_binding(self) -> None:
         model = QueueModel(
             ModelTurn(tool_calls=(
-                ToolCall("up", "nino_runtime_dispatch_agent", {
-                    "node_id": "upstream", "agent_id": "nino-data.analyst",
+                ToolCall("up", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "upstream", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Query margin",
                 }),
-                ToolCall("down", "nino_runtime_dispatch_agent", {
+                ToolCall("down", "nino_runtime_submit_task_graph_node", {
                     "node_id": "downstream", "depends_on": ["upstream"],
                     "input_bindings": [{
                         "name": "metrics", "source_node_id": "upstream",
                         "selector": "outputs",
                     }],
-                    "agent_id": "nino-data.analyst", "skill_id": "nino-data.analysis",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                     "task": "Explain metrics",
                 }),
             )),
@@ -407,13 +421,13 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_input_binding_must_reference_a_dependency(self) -> None:
         result = await OrchestratorHarness(
             QueueModel(ModelTurn(tool_calls=(ToolCall(
-                "bad", "nino_runtime_dispatch_agent", {
+                "bad", "nino_runtime_submit_task_graph_node", {
                     "node_id": "downstream",
                     "input_bindings": [{
                         "name": "source", "source_node_id": "not-a-dependency",
                         "selector": "summary",
                     }],
-                    "agent_id": "nino-data.analyst",
+                    "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Analyze",
                 },
             ),))),
@@ -426,14 +440,14 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_revision_can_reconcile_with_new_repair_node(self) -> None:
         model = QueueModel(
             ModelTurn(tool_calls=(ToolCall(
-                "first", "nino_runtime_dispatch_agent", {
-                    "node_id": "initial", "agent_id": "nino-data.analyst",
+                "first", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "initial", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Initial query",
                 },
             ),)),
             ModelTurn(tool_calls=(ToolCall(
-                "repair", "nino_runtime_dispatch_agent", {
-                    "node_id": "repair", "agent_id": "nino-data.analyst",
+                "repair", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "repair", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Repair with corrected query",
                 },
             ),)),
@@ -468,8 +482,8 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         await controller.ensure(run, trigger.content)
         await controller.start(run, trigger.content)
 
-        dispatch = ToolCall("call", "nino_runtime_dispatch_agent", {
-            "node_id": "query", "agent_id": "nino-data.analyst",
+        dispatch = ToolCall("call", "nino_runtime_submit_task_graph_node", {
+            "node_id": "query", "agent_id": "nino.analyst",
             "skill_id": "nino-data.analysis", "task": "Query one order",
             "acceptance_contract": {
                 "spec_source": "user_request",

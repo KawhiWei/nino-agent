@@ -100,7 +100,8 @@ class DemoChatModel:
         question = next(message.content for message in reversed(messages) if message.role == "user")
         tool_names = {tool.name for tool in tools}
         system_text = "\n".join(message.content for message in messages if message.role == "system")
-        is_orchestrator = "nino_runtime_dispatch_agent" in tool_names
+        is_planner = "nino_runtime_submit_task_graph_node" in tool_names
+        is_reconciliation = "Reconcile the successful verified node results" in system_text
         loaded_references: set[str] = set()
         for message in messages:
             if message.role != "tool":
@@ -115,8 +116,6 @@ class DemoChatModel:
         last = messages[-1]
         if last.role == "tool":
             data = json.loads(last.content)
-            if data.get("kind") == "dispatch_result" and is_orchestrator:
-                return ModelTurn(text=f"演示主 Agent 结论：{data.get('summary', '')}")
             if data.get("reference_id"):
                 return self._data_tool_turn(question)
             if "nino_runtime_submit_evaluator_verdict" in tool_names:
@@ -138,18 +137,25 @@ class DemoChatModel:
             "订单", "支付", "退款", "收入", "成本", "毛利", "亏损", "统计", "报表",
             "order", "payment", "refund", "margin", "nino data",
         )
-        if is_orchestrator and any(word in question.lower() for word in data_intents):
+        if is_reconciliation:
+            evidence = next(
+                message.content for message in reversed(messages)
+                if message.role == "system"
+                and "Reconcile the successful verified node results" in message.content
+            )
+            return ModelTurn(text=f"演示主 Agent 结论：{evidence.splitlines()[-1]}")
+        if is_planner and any(word in question.lower() for word in data_intents):
             return ModelTurn(tool_calls=(ToolCall(
                 id="demo-dispatch-analyst",
-                name="nino_runtime_dispatch_agent",
+                name="nino_runtime_submit_task_graph_node",
                 arguments={
-                    "agent_id": "nino-data.analyst",
+                    "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis",
                     "task": question,
                     "context": "Return a conclusion with deterministic tool evidence.",
                 },
             ),))
-        if is_orchestrator:
+        if is_planner:
             return ModelTurn(tool_calls=(ToolCall(
                 id="demo-route-reject",
                 name="nino_runtime_reject_request",

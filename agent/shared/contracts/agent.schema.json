@@ -9,13 +9,25 @@
     "$schema": { "type": "string" },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
     "mode": { "enum": ["primary", "specialist"] },
-    "role": { "enum": ["orchestrator", "worker", "evaluator"] },
+    "role": { "enum": ["orchestrator", "planner", "worker", "evaluator"] },
     "evaluator_kind": { "enum": ["verification", "review", "critique"] },
     "instructions": { "type": "string", "minLength": 1 },
     "allowed_skills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "allowed_tools": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "allowed_delegates": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "accepted_capabilities": {
+      "description": "Generic Skill capability selector used only when allowed_skills is empty.",
+      "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }
+    },
+    "accepted_risk_levels": {
+      "description": "Generic Skill risk selector used only when allowed_skills is empty.",
+      "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }
+    },
+    "tool_policy": {
+      "description": "explicit intersects Skill tools with allowed_tools; selected-skill-only delegates names to the compatible selected Skill while retaining MCP discovery and role-policy checks.",
+      "enum": ["explicit", "selected-skill-only"], "default": "explicit"
+    },
     "discover_delegates": { "type": "boolean", "default": false },
     "loop": { "$ref": "#/$defs/loopBudget" },
     "max_steps": { "type": "integer", "minimum": 1, "maximum": 20 },

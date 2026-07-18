@@ -101,7 +101,7 @@ class LangGraphReActHarness:
             )
 
         await emit("skill_selected", skill_id=skill.id, version=skill.version)
-        if self._agent is not None and skill.id not in self._agent.allowed_skills:
+        if self._agent is not None and not self._agent.accepts_skill(skill):
             return await self._failed(
                 run_id, events, emit, skill, 0, "SKILL_NOT_ALLOWED",
                 f"Skill is not allowed by agent {self._agent.id}: {skill.id}",
@@ -387,7 +387,7 @@ class LangGraphReActHarness:
         listed = await self._tools.list_tools()
         expected = skill.allowed_tools
         if self._agent is not None:
-            expected = expected & self._agent.allowed_tools
+            expected = self._agent.effective_tools(skill)
         allowed = tuple(item for item in listed if item.name in expected)
         missing = expected - {item.name for item in allowed}
         if missing:

@@ -1,13 +1,21 @@
 {
   "$schema": "../../contracts/agent.schema.json",
-  "id": "nino-data.verifier",
+  "id": "nino.verifier",
   "mode": "specialist",
   "role": "evaluator",
   "evaluator_kind": "verification",
   "instructions": "AGENT.md",
-  "capabilities": ["data-verification", "metric-validation", "evidence-review"],
-  "allowed_skills": ["nino-data.analysis"],
-  "allowed_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
+  "capabilities": [
+    "independent-verification",
+    "evidence-review",
+    "contract-validation"
+  ],
+  "accepted_risk_levels": [
+    "read-only"
+  ],
+  "tool_policy": "selected-skill-only",
+  "allowed_skills": [],
+  "allowed_tools": [],
   "allowed_delegates": [],
   "loop": {
     "max_actions": 8,

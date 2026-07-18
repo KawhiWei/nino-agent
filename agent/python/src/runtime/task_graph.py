@@ -81,7 +81,7 @@ class TaskGraphController:
         elif event.type == "tool_completed" and not bool(event.data.get("is_error", False)):
             child_id, tool = str(event.data.get("child_run_id", "")), str(event.data.get("tool", ""))
             if child_id and tool not in {
-                "nino_runtime_dispatch_agent", "nino_runtime_read_reference",
+                "nino_runtime_submit_task_graph_node", "nino_runtime_read_reference",
                 "nino_runtime_request_clarification",
             }:
                 self._successful_evidence.setdefault(child_id, []).append(tool)

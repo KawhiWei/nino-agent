@@ -35,11 +35,19 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("adaptive", skill.workflow_execution_shape)
         self.assertEqual("strict_verify", skill.assurance_mode)
         self.assertEqual("nino.orchestrator", primary.id)
+        self.assertEqual("nino.planner", self.agents.planner.id)
         self.assertTrue(primary.discover_delegates)
         self.assertEqual(
-            {"nino-data.analyst", "nino-data.verifier"},
+            {"nino.analyst", "nino.verifier"},
             {agent.id for agent in self.agents.delegates_for(primary)},
         )
+        analyst = self.agents.get("nino.analyst")
+        verifier = self.agents.get("nino.verifier")
+        self.assertTrue(analyst.accepts_skill(skill))
+        self.assertTrue(verifier.accepts_skill(skill))
+        self.assertEqual(skill.allowed_tools, analyst.effective_tools(skill))
+        self.assertEqual(skill.allowed_tools, verifier.effective_tools(skill))
+        self.assertEqual(frozenset(), self.agents.planner.allowed_tools)
         loaded = ReferenceProvider().load(skill, "metric-definitions")
         self.assertIn("Demo gross margin", loaded.content)
         self.assertEqual(64, len(loaded.sha256))
@@ -61,7 +69,7 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("completed", result.status.value)
         self.assertIn("reference_loaded", [event.type for event in result.events])
         self.assertEqual(
-            ["nino-data.analyst", "nino-data.verifier"],
+            ["nino.analyst", "nino.verifier"],
             [event.data["agent_id"] for event in result.events if event.type == "agent_started"],
         )
 
@@ -82,7 +90,7 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
         started = [event.data["agent_id"] for event in result.events if event.type == "agent_started"]
         completed = [event.data["agent_id"] for event in result.events if event.type == "agent_completed"]
         self.assertEqual("completed", result.status.value)
-        self.assertEqual(["nino-data.analyst", "nino-data.verifier"], started)
+        self.assertEqual(["nino.analyst", "nino.verifier"], started)
         self.assertEqual(started, completed)
 
     @unittest.skipUnless(importlib.util.find_spec("langgraph"), "langgraph optional dependency")
@@ -102,7 +110,7 @@ class AgentAndReferenceTests(unittest.IsolatedAsyncioTestCase):
 
         started = [event.data["agent_id"] for event in result.events if event.type == "agent_started"]
         self.assertEqual("completed", result.status.value)
-        self.assertEqual(["nino-data.analyst", "nino-data.verifier"], started)
+        self.assertEqual(["nino.analyst", "nino.verifier"], started)
 
 
 if __name__ == "__main__":

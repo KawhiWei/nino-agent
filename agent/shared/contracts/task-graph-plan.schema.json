@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nino-agent.local/schemas/task-graph-plan.schema.json",
-  "title": "Nino TaskGraph Plan Revision",
+  "title": "Nino Accepted TaskGraph Plan Revision",
+  "description": "A TaskGraph revision after deterministic Orchestrator validation. This is not raw Planner authority: the current Planner submits candidate specialist nodes, while the Orchestrator assigns the revision, validates the DAG and bindings, and expands required evaluator nodes before persistence.",
   "type": "object",
   "additionalProperties": false,
   "required": ["revision", "nodes"],

@@ -1,12 +1,20 @@
 {
   "$schema": "../../contracts/agent.schema.json",
-  "id": "nino-data.analyst",
+  "id": "nino.analyst",
   "mode": "specialist",
   "role": "worker",
   "instructions": "AGENT.md",
-  "capabilities": ["data-analysis", "order-query", "aggregate-statistics", "report-analysis"],
-  "allowed_skills": ["nino-data.analysis"],
-  "allowed_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
+  "capabilities": [
+    "business-analysis",
+    "evidence-synthesis",
+    "report-analysis"
+  ],
+  "accepted_risk_levels": [
+    "read-only"
+  ],
+  "tool_policy": "selected-skill-only",
+  "allowed_skills": [],
+  "allowed_tools": [],
   "allowed_delegates": [],
   "loop": {
     "max_actions": 8,

@@ -56,7 +56,10 @@
       "properties": {
         "status": { "enum": ["completed", "failed", "cancelled"] },
         "skill_id": { "type": ["string", "null"] },
-        "dispatch": { "type": "boolean" },
+        "dispatch": {
+          "description": "Stable legacy name meaning that the request should enter the controlled business execution path. In Runtime 0.14 this requires a Planner proposal accepted by the Orchestrator, not Orchestrator-authored planning.",
+          "type": "boolean"
+        },
         "required_tools": {
           "type": "array", "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }, "default": []

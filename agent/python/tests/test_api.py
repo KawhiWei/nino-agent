@@ -64,11 +64,18 @@ class AgentApiTests(unittest.TestCase):
 
             agents = client.get("/api/v1/agents")
             self.assertEqual(200, agents.status_code)
-            self.assertEqual(3, len(agents.json()))
+            self.assertEqual(4, len(agents.json()))
             self.assertEqual(
                 "nino.orchestrator",
                 next(item for item in agents.json() if item["mode"] == "primary")["id"],
             )
+            self.assertEqual(
+                {"nino.orchestrator", "nino.planner", "nino.analyst", "nino.verifier"},
+                {item["id"] for item in agents.json()},
+            )
+            analyst = next(item for item in agents.json() if item["id"] == "nino.analyst")
+            self.assertEqual(["read-only"], analyst["accepted_risk_levels"])
+            self.assertEqual("selected-skill-only", analyst["tool_policy"])
             self.assertEqual([], client.get("/api/v1/mcp/servers").json())
 
             created = client.post("/api/v1/conversations", json={"title": "July analysis"})

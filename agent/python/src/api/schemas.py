@@ -204,6 +204,9 @@ class AgentResponse(BaseModel):
     allowed_tools: list[str]
     allowed_delegates: list[str]
     capabilities: list[str]
+    accepted_capabilities: list[str]
+    accepted_risk_levels: list[str]
+    tool_policy: str
     discover_delegates: bool
     max_steps: int
     max_delegation_depth: int

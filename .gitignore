@@ -13,3 +13,5 @@ nino-agent-storage/*.db-shm
 nino-agent-storage/*.db-wal
 **/bin/
 **/obj/
+Nino.Data.Mcp.sln.DotSettings.user
+mcp/dotnet/.idea/.idea.Nino.Data.Mcp/.idea

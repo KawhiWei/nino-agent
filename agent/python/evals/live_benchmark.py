@@ -12,7 +12,7 @@ from typing import Any
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 INTERNAL_TOOLS = {
-    "nino_runtime_dispatch_agent",
+    "nino_runtime_submit_task_graph_node",
     "nino_runtime_load_reference",
     "nino_runtime_request_clarification",
 }
@@ -188,7 +188,7 @@ def score(case: BenchmarkCase, run: dict[str, Any], events: list[dict[str, Any]]
     model_calls = sum(event["type"] == "model_started" for event in events)
 
     completed_score = 20 if run["status"] == case.expected_status else 0
-    dispatched = "nino_runtime_dispatch_agent" in tool_names
+    dispatched = "nino_runtime_submit_task_graph_node" in tool_names
     route_ok = dispatched == case.expect_dispatch and run.get("skill_id") == case.expected_skill
     routing_score = 20 if route_ok else 0
 

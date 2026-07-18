@@ -62,6 +62,10 @@ curl -s 'http://127.0.0.1:8090/api/v1/mcp/servers?discover=true'
 
 ## 4. ReAct 端到端验收
 
+当前真实调用采用四角色顺序：`nino.orchestrator` 先路由，`nino.planner` 只提交候选节点，
+Orchestrator 校验并持久化后调度 `nino.analyst`，再由 `nino.verifier` 独立复查，最后 Orchestrator
+在无 Tool 模式下汇总。自然语言请求不需要也不应该包含 Agent、Skill 或 Tool 名称。
+
 创建会话：
 
 ```bash
@@ -84,19 +88,28 @@ curl -s http://127.0.0.1:8090/api/v1/conversations/{conversation_id}/messages \
 curl -N http://127.0.0.1:8090/api/v1/runs/{run_id}/events/stream
 curl -s http://127.0.0.1:8090/api/v1/runs/{run_id}
 curl -s http://127.0.0.1:8090/api/v1/runs/{run_id}/loop-checkpoint
+curl -s http://127.0.0.1:8090/api/v1/runs/{run_id}/task-graph
 ```
 
 验收重点不是只有最终文本，而是事件链中出现：
 
 ```text
-orchestration model_started
--> nino_runtime_dispatch_agent tool_started/tool_completed
--> agent_started + skill_selected
+planning model_started (`nino.planner`)
+-> candidate nino_runtime_submit_task_graph_node
+-> graph_planned / graph_reconciled
+-> agent_started (`nino.analyst`) + skill_selected
 -> worker model_started
 -> nino_data_* tool_started/tool_completed
--> agent_completed
+-> agent_completed (`nino.analyst`)
+-> agent_started (`nino.verifier`)
+-> independent read-only Tool call + structured verdict
+-> evidence and independent_verification Gates passed
+-> reconciliation model_started (`nino.orchestrator`)
 -> run_completed
 ```
+
+`task-graph` 中不会出现 Planner Node；Planner proposal 只有被 Orchestrator 接受后才投影为 Specialist
+和 Verification Node。最终应看到 `orchestration/specialist/verification` 三类 Node 全部 completed。
 
 同一会话继续追问“那退款占收入的比例是多少”，复用原 `conversation_id`，验证 SQLite 多轮上下文。
 
@@ -109,4 +122,4 @@ orchestration model_started
 | 模型 HTTP 401 | Key 无效、过期或包含多余引号 |
 | 模型 HTTP 404 | 网关是否提供 `/v1/chat/completions`，并支持 `gpt-5.4` |
 | `TOOL_DISCOVERY_ERROR` | `nino-data`、8091 MCP endpoint 和 Tool 白名单 |
-| 主模型直接猜业务答案 | 检查 dispatch 和 MCP `tool_started` 事件是否出现 |
+| 模型直接猜业务答案 | 检查 planning、graph_planned 和 MCP `tool_started` 事件是否出现 |

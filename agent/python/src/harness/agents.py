@@ -28,6 +28,9 @@ class AgentDefinition:
     allowed_tools: frozenset[str]
     allowed_delegates: frozenset[str]
     capabilities: tuple[str, ...]
+    accepted_capabilities: frozenset[str]
+    accepted_risk_levels: frozenset[str]
+    tool_policy: str
     discover_delegates: bool
     loop_budget: LoopBudget
     max_steps: int
@@ -39,6 +42,24 @@ class AgentDefinition:
             bool(self.allowed_delegates) or self.discover_delegates
         ) and self.max_delegation_depth > 0
 
+    def accepts_skill(self, skill: Any) -> bool:
+        """Apply explicit bindings first, then the generic role compatibility policy."""
+
+        if self.allowed_skills:
+            return skill.id in self.allowed_skills
+        if self.role not in {"worker", "evaluator"}:
+            return False
+        if self.accepted_risk_levels and skill.risk_level not in self.accepted_risk_levels:
+            return False
+        return not self.accepted_capabilities or bool(
+            self.accepted_capabilities.intersection(skill.capabilities)
+        )
+
+    def effective_tools(self, skill: Any) -> frozenset[str]:
+        if self.tool_policy == "selected-skill-only":
+            return skill.allowed_tools
+        return skill.allowed_tools & self.allowed_tools
+
 
 class AgentRegistry:
     def __init__(self, agents: tuple[AgentDefinition, ...]) -> None:
@@ -48,6 +69,8 @@ class AgentRegistry:
             raise AgentConfigurationError("Agent ids must be unique.")
         if sum(agent.mode == "primary" for agent in agents) != 1:
             raise AgentConfigurationError("Exactly one primary agent is required.")
+        if sum(agent.role == "planner" for agent in agents) != 1:
+            raise AgentConfigurationError("Exactly one planner Agent is required.")
         ids = {agent.id for agent in agents}
         for agent in agents:
             missing = agent.allowed_delegates - ids
@@ -70,6 +93,13 @@ class AgentRegistry:
     @property
     def primary(self) -> AgentDefinition:
         return next(agent for agent in self._agents if agent.mode == "primary")
+
+    @property
+    def planner(self) -> AgentDefinition:
+        planners = tuple(agent for agent in self._agents if agent.role == "planner")
+        if len(planners) != 1:
+            raise AgentConfigurationError("Exactly one planner Agent is required.")
+        return planners[0]
 
     @classmethod
     def load(cls, root: Path) -> "AgentRegistry":
@@ -96,8 +126,10 @@ class AgentRegistry:
             raise AgentConfigurationError("Agent mode must be primary or specialist.")
         role = str(manifest.get("role", "orchestrator" if mode == "primary" else "worker"))
         evaluator_kind = manifest.get("evaluator_kind")
-        if role not in {"orchestrator", "worker", "evaluator"}:
-            raise AgentConfigurationError("Agent role must be orchestrator, worker, or evaluator.")
+        if role not in {"orchestrator", "planner", "worker", "evaluator"}:
+            raise AgentConfigurationError(
+                "Agent role must be orchestrator, planner, worker, or evaluator."
+            )
         if mode == "primary" and role != "orchestrator":
             raise AgentConfigurationError("Primary Agent role must be orchestrator.")
         if mode == "specialist" and role == "orchestrator":
@@ -106,6 +138,19 @@ class AgentRegistry:
             raise AgentConfigurationError("Evaluator Agent requires evaluator_kind.")
         if role != "evaluator" and evaluator_kind is not None:
             raise AgentConfigurationError("Only evaluator Agents may set evaluator_kind.")
+        tool_policy = str(manifest.get("tool_policy", "explicit"))
+        if tool_policy not in {"explicit", "selected-skill-only"}:
+            raise AgentConfigurationError(
+                "Agent tool_policy must be explicit or selected-skill-only."
+            )
+        if role in {"orchestrator", "planner"} and tool_policy != "explicit":
+            raise AgentConfigurationError(
+                "Control-plane Agents cannot inherit selected Skill tools."
+            )
+        if role == "planner" and any((manifest["allowed_skills"], manifest["allowed_tools"])):
+            raise AgentConfigurationError(
+                "Planner Agent cannot bind business Skills or MCP tools."
+            )
         max_steps = int(manifest["max_steps"])
         max_depth = int(manifest.get("max_delegation_depth", 0))
         if not 1 <= max_steps <= 20 or not 0 <= max_depth <= 3:
@@ -125,6 +170,13 @@ class AgentRegistry:
             allowed_tools=frozenset(str(item) for item in manifest["allowed_tools"]),
             allowed_delegates=frozenset(str(item) for item in manifest.get("allowed_delegates", ())),
             capabilities=tuple(str(item) for item in manifest.get("capabilities", ())),
+            accepted_capabilities=frozenset(
+                str(item) for item in manifest.get("accepted_capabilities", ())
+            ),
+            accepted_risk_levels=frozenset(
+                str(item) for item in manifest.get("accepted_risk_levels", ())
+            ),
+            tool_policy=tool_policy,
             discover_delegates=bool(manifest.get("discover_delegates", False)),
             loop_budget=loop_budget,
             max_steps=max_steps, max_delegation_depth=max_depth,
@@ -140,5 +192,8 @@ class AgentRegistry:
         """Return the policy-filtered candidate pool visible to one control-plane agent."""
 
         if agent.discover_delegates:
-            return tuple(candidate for candidate in self._agents if candidate.mode == "specialist")
+            return tuple(
+                candidate for candidate in self._agents
+                if candidate.mode == "specialist" and candidate.role != "planner"
+            )
         return tuple(self.get(agent_id) for agent_id in sorted(agent.allowed_delegates))

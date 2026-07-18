@@ -14,13 +14,13 @@ from framework import (
 
 from .agents import AgentDefinition, AgentRegistry
 from .loop import LoopController, LoopViolation, strictest_budget
+from .planning import PLAN_NODE_TOOL_NAME, PlannerHarness, REJECT_TOOL_NAME
 from .react import CLARIFICATION_TOOL_NAME, HarnessConfig, is_concise_clarification
 from .scheduler import TaskGraphScheduler
 from .skills import SkillRegistry
 
 
-DISPATCH_TOOL_NAME = "nino_runtime_dispatch_agent"
-REJECT_TOOL_NAME = "nino_runtime_reject_request"
+DISPATCH_TOOL_NAME = PLAN_NODE_TOOL_NAME
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +54,8 @@ class DispatchOutcome:
 class OrchestratorHarness:
     """Business-neutral control plane over isolated specialist ReAct workers.
 
-    The primary model sees capability summaries, never business instructions or MCP tools. Strict
-    scope policy rejects unmatched input before a model call and requires an approved dispatch
-    before accepting model-generated output.
+    Planner proposals are untrusted input. This control plane validates and persists Graph revisions,
+    schedules workers, enforces gates, and alone reconciles accepted evidence into a final answer.
     """
 
     OUT_OF_SCOPE_ANSWER = (
@@ -76,6 +75,7 @@ class OrchestratorHarness:
         self._skills = skills
         self._agents = agents
         self._primary = agents.primary
+        self._planner = PlannerHarness(model, agents.planner)
         self._worker_factory = worker_factory
         self._config = config or HarnessConfig()
         self._node_slots = asyncio.Semaphore(self._config.hard_max_parallel_nodes)
@@ -159,28 +159,6 @@ class OrchestratorHarness:
                 run_id, RunStatus.COMPLETED, self.OUT_OF_SCOPE_ANSWER,
                 None, 0, tuple(events),
             )
-        tools = (
-            self._dispatch_tool(candidates),
-            self._clarification_tool(),
-            *((self._reject_tool(),) if semantic_fallback else ()),
-        )
-        messages = [
-            Message(role="system", content=self._primary.instructions),
-            Message(role="system", content=self._catalog_prompt(candidates)),
-            Message(
-                role="system",
-                content=(
-                    "Keyword routing was inconclusive. Select a compatible capability only when "
-                    "the request semantically fits it; otherwise request one clarification or "
-                    "reject the request through the provided structured Action."
-                    if semantic_fallback else
-                    "The request matched registered routing evidence. Request clarification "
-                    "through the structured Action when required input is missing."
-                ),
-            ),
-            *history,
-            Message(role="user", content=user_input.strip()),
-        ]
         used_skills: set[str] = set()
         successful_dispatches = 0
         node_outcomes: dict[str, bool] = {}
@@ -194,65 +172,23 @@ class OrchestratorHarness:
                     return await fail(violation)
                 step = loop.step
                 await checkpoint("before_model")
-                await emit("model_started", step=step, phase="orchestration")
-                async with asyncio.timeout(loop.remaining_seconds):
-                    turn = await self.step(HarnessStepState(
-                        messages=tuple(messages), tools=tools, step=step, max_steps=max_steps,
-                    ))
                 await emit(
-                    "model_completed", step=step, phase="orchestration",
-                    tool_call_count=len(turn.tool_calls), has_text=bool(turn.text.strip()),
+                    "model_started", step=step, phase="planning",
+                    agent_id=self._agents.planner.id,
                 )
-                if not turn.tool_calls:
-                    answer = turn.text.strip()
-                    if not answer:
-                        return await fail(LoopViolation(
-                            "EMPTY_MODEL_RESPONSE",
-                            "Orchestrator returned neither text nor dispatch calls.",
-                            LoopStopReason.NO_PROGRESS,
-                        ))
-                    if successful_dispatches == 0:
-                        code = (
-                            "DISPATCH_REQUIRED"
-                            if not used_skills
-                            else "SUCCESSFUL_DISPATCH_REQUIRED"
-                        )
-                        await emit(
-                            "policy_rejected", error_code=code,
-                            policy="registered_skill_dispatch",
-                        )
-                        return await fail(LoopViolation(
-                            code,
-                            "A matched request requires at least one successful registered Agent "
-                            "and Skill dispatch before a final answer.",
-                            LoopStopReason.POLICY_VIOLATION,
-                        ))
-                    loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
-                    await checkpoint("terminal")
-                    await emit("run_completed", step=step, agent_id=self._primary.id)
-                    return RunResult(
-                        run_id, RunStatus.COMPLETED, answer,
-                        next(iter(used_skills)) if len(used_skills) == 1 else None,
-                        step, tuple(events),
+                async with asyncio.timeout(loop.remaining_seconds):
+                    decision = await self._planner.plan(
+                        user_input, candidates, revision=step, history=history,
+                        node_results=node_results, semantic_fallback=semantic_fallback,
                     )
-
-                messages.append(Message(
-                    role="assistant", content=turn.text, tool_calls=turn.tool_calls,
-                    reasoning_content=turn.reasoning_content,
-                ))
-                control_calls = tuple(
-                    call for call in turn.tool_calls if call.name != DISPATCH_TOOL_NAME
+                await emit(
+                    "model_completed", step=step, phase="planning",
+                    agent_id=self._agents.planner.id,
+                    tool_call_count=len(decision.calls), has_text=bool(decision.message),
                 )
-                if control_calls:
-                    if len(control_calls) != 1 or len(turn.tool_calls) != 1:
-                        return await fail(LoopViolation(
-                            "INVALID_ROUTE_ACTION",
-                            "Clarification or rejection must be the only route Action in a turn.",
-                            LoopStopReason.POLICY_VIOLATION,
-                        ))
-                    control_call = control_calls[0]
-                    if control_call.name == CLARIFICATION_TOOL_NAME:
-                        question = str(control_call.arguments.get("message", "")).strip()
+                if decision.kind != "plan":
+                    if decision.kind == "clarification":
+                        question = decision.message
                         if not is_concise_clarification(question):
                             return await fail(LoopViolation(
                                 "INVALID_CLARIFICATION",
@@ -267,11 +203,10 @@ class OrchestratorHarness:
                             run_id, RunStatus.COMPLETED, question, None,
                             step, tuple(events),
                         )
-                    if control_call.name == REJECT_TOOL_NAME and semantic_fallback:
-                        reason = str(control_call.arguments.get("reason", "")).strip()
+                    if decision.kind == "reject" and semantic_fallback:
                         await emit(
                             "policy_rejected", error_code="OUT_OF_SCOPE",
-                            policy="semantic_capability_scope", reason=reason,
+                            policy="semantic_capability_scope", reason=decision.message,
                         )
                         loop.stop(
                             LoopStatus.COMPLETED, LoopStopReason.POLICY_VIOLATION,
@@ -283,12 +218,17 @@ class OrchestratorHarness:
                             run_id, RunStatus.COMPLETED, self.OUT_OF_SCOPE_ANSWER,
                             None, step, tuple(events),
                         )
+                    await emit(
+                        "policy_rejected", error_code="INVALID_PLANNER_OUTPUT",
+                        policy="structured_task_graph_plan",
+                    )
                     return await fail(LoopViolation(
-                        "TOOL_NOT_ALLOWED", f"Unsupported route Action: {control_call.name}",
+                        "INVALID_PLANNER_OUTPUT",
+                        decision.message or "Planner must submit a structured TaskGraph revision.",
                         LoopStopReason.POLICY_VIOLATION,
                     ))
                 plans: list[PlannedDispatch] = []
-                for index, call in enumerate(turn.tool_calls, start=1):
+                for index, call in enumerate(decision.calls, start=1):
                     error = self._validate_dispatch(call, candidates)
                     if error is not None:
                         return await fail(LoopViolation(
@@ -329,14 +269,58 @@ class OrchestratorHarness:
                     node_results[outcome.plan.node_id] = outcome.payload
                     if outcome.success:
                         successful_dispatches += 1
-                    messages.append(Message(
-                        role="tool", content=outcome.result.content,
-                        tool_call_id=outcome.plan.call.id,
-                    ))
                     violation = loop.record_observation(outcome.success)
                     await checkpoint("after_observation")
                     if violation is not None:
                         return await fail(violation)
+                if outcomes and all(outcome.success for outcome in outcomes):
+                    violation = loop.begin_step()
+                    if violation is not None:
+                        return await fail(violation)
+                    final_step = loop.step
+                    await checkpoint("before_model")
+                    await emit(
+                        "model_started", step=final_step, phase="reconciliation",
+                        agent_id=self._primary.id,
+                    )
+                    final_messages = (
+                        Message(role="system", content=self._primary.instructions),
+                        *history,
+                        Message(role="user", content=user_input.strip()),
+                        Message(
+                            role="system",
+                            content=(
+                                "Reconcile the successful verified node results below into the "
+                                "final user-facing answer. Do not propose or execute work.\n"
+                                + json.dumps(node_results, ensure_ascii=False)
+                            ),
+                        ),
+                    )
+                    async with asyncio.timeout(loop.remaining_seconds):
+                        turn = await self.step(HarnessStepState(
+                            messages=final_messages, tools=(), step=final_step,
+                            max_steps=max_steps,
+                        ))
+                    await emit(
+                        "model_completed", step=final_step, phase="reconciliation",
+                        agent_id=self._primary.id,
+                        tool_call_count=len(turn.tool_calls), has_text=bool(turn.text.strip()),
+                    )
+                    answer = turn.text.strip()
+                    if turn.tool_calls or not answer:
+                        return await fail(LoopViolation(
+                            "INVALID_RECONCILIATION",
+                            "Orchestrator reconciliation must return final text only.",
+                            LoopStopReason.POLICY_VIOLATION,
+                        ))
+                    loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
+                    await checkpoint("terminal")
+                    await emit("run_completed", step=final_step, agent_id=self._primary.id)
+                    return RunResult(
+                        run_id, RunStatus.COMPLETED, answer,
+                        next(iter(used_skills)) if len(used_skills) == 1 else None,
+                        final_step, tuple(events),
+                    )
         except asyncio.CancelledError:
             loop.stop(LoopStatus.CANCELLED, LoopStopReason.CANCELLED, "RUN_CANCELLED")
             await checkpoint("terminal")
@@ -364,10 +348,12 @@ class OrchestratorHarness:
         for agent in self._agents.delegates_for(self._primary):
             if agent.role != "worker":
                 continue
-            for skill_id in sorted(agent.allowed_skills):
-                if matched_skill_ids is not None and skill_id not in matched_skill_ids:
+            for skill in self._skills.skills:
+                if not agent.accepts_skill(skill):
                     continue
-                candidates.append((agent, self._skills.get(skill_id)))
+                if matched_skill_ids is not None and skill.id not in matched_skill_ids:
+                    continue
+                candidates.append((agent, skill))
         return tuple(candidates)
 
     def _make_plan(
@@ -817,7 +803,7 @@ class OrchestratorHarness:
         for kind in skill.required_evaluators:
             match = next((
                 agent for agent in available
-                if skill_id in agent.allowed_skills
+                if agent.accepts_skill(skill)
                 and agent.role == "evaluator" and agent.evaluator_kind == kind
             ), None)
             if match is None:

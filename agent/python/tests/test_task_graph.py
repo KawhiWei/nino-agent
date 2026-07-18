@@ -29,16 +29,16 @@ class GraphRuntime:
         events = (
             AgentEvent(run_id, 1, "run_started"),
             AgentEvent(run_id, 2, "agent_started", {
-                "child_run_id": "child-1", "agent_id": "nino-data.analyst",
+                "child_run_id": "child-1", "agent_id": "nino.analyst",
                 "skill_id": "nino-data.analysis", "task": "Query an order",
             }),
             AgentEvent(run_id, 3, "tool_completed", {
-                "child_run_id": "child-1", "agent_id": "nino-data.analyst",
+                "child_run_id": "child-1", "agent_id": "nino.analyst",
                 "skill_id": "nino-data.analysis", "tool": "nino_data_get_order_detail",
                 "is_error": False,
             }),
             AgentEvent(run_id, 4, "agent_completed", {
-                "child_run_id": "child-1", "agent_id": "nino-data.analyst",
+                "child_run_id": "child-1", "agent_id": "nino.analyst",
                 "skill_id": "nino-data.analysis", "status": "completed",
             }),
             AgentEvent(run_id, 5, "run_completed"),
@@ -245,13 +245,13 @@ class RepositoryConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 "revision": 1,
                 "nodes": [{
                     "node_id": "query", "kind": "specialist",
-                    "agent_id": "nino-data.analyst", "skill_id": "nino-data.analysis",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                     "task": "Query", "depends_on": [], "gate_kind": "evidence",
                 }],
             }))
             started = AgentEvent(run.id, 2, "agent_started", {
                 "child_run_id": "child-1", "plan_node_id": "query",
-                "agent_id": "nino-data.analyst", "skill_id": "nino-data.analysis",
+                "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                 "task": "Query", "depends_on": [], "node_kind": "specialist",
             })
             self.assertTrue((await controller.record_event(run, started))["execute"])
