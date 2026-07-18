@@ -52,3 +52,9 @@ not mean no capability. With `tool_policy=selected-skill-only`, the Runtime firs
 `accepted_risk_levels/accepted_capabilities`, then exposes only tools present in both MCP discovery and
 the selected `Skill.allowed_tools`. Explicit allowlists remain available for future narrowly bound
 roles.
+
+Accepted TaskGraph nodes carry a canonical `node_fingerprint`. A Runtime may reuse a completed node
+only when its logical ID and fingerprint both match. A repair node uses `supersedes_node_id` to replace
+failed or blocked work from an earlier revision; unfinished affected descendants become
+`superseded`, while completed history remains immutable. This lineage is part of the cross-language
+Harness behavior even though exact Ready-node resume is not currently required.

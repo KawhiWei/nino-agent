@@ -58,7 +58,7 @@
         "kind": { "enum": ["orchestration", "specialist", "verification", "review", "critique", "approval"] },
         "owner_agent_id": { "type": "string" },
         "title": { "type": "string" },
-        "status": { "enum": ["pending", "running", "awaiting_approval", "completed", "failed", "cancelled", "skipped"] },
+        "status": { "enum": ["pending", "running", "awaiting_approval", "completed", "failed", "cancelled", "skipped", "superseded"] },
         "dependencies": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "contract": { "$ref": "#/$defs/contract" },
         "result_summary": { "type": "string" },
@@ -67,7 +67,10 @@
         "created_at": { "type": "string", "format": "date-time" },
         "started_at": { "type": ["string", "null"], "format": "date-time" },
         "completed_at": { "type": ["string", "null"], "format": "date-time" },
-        "metadata": { "type": "object" }
+        "metadata": {
+          "type": "object",
+          "description": "Carries logical_node_id, accepted node_fingerprint, proposal_fingerprint, skill_version, revision lineage, dependency fingerprints, and supersedes/invalidation links."
+        }
       }
     },
     "gate": {

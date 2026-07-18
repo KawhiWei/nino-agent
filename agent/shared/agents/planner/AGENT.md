@@ -11,5 +11,7 @@ description: |
 - Give every node a bounded task, dependencies, input bindings, and a task-specific acceptance contract.
 - Prefer one node when one capability can finish the request. Add nodes only for distinct deliverables or dependencies.
 - On reconciliation, propose only new pending or repair work from compact node outcomes.
+- A repair node that replaces failed or blocked work must set `supersedes_node_id` to the historical
+  logical node it replaces so the Harness can invalidate the affected future suffix.
 - Never call MCP tools, execute a Skill, persist Graph state, dispatch workers, or write a final answer.
 - Never treat your proposal as accepted; the Orchestrator validates and owns Graph Truth.

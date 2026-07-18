@@ -110,6 +110,8 @@ planning model_started (`nino.planner`)
 
 `task-graph` 中不会出现 Planner Node；Planner proposal 只有被 Orchestrator 接受后才投影为 Specialist
 和 Verification Node。最终应看到 `orchestration/specialist/verification` 三类 Node 全部 completed。
+恢复或 reconcile 验收还应检查 Node metadata：相同 Fingerprint 才允许复用；repair Node 应记录
+`supersedes_node_id`，被影响且尚未完成的旧下游状态应为 `superseded`。
 
 同一会话继续追问“那退款占收入的比例是多少”，复用原 `conversation_id`，验证 SQLite 多轮上下文。
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from hashlib import sha256
+import json
 from typing import Any, Mapping
 
 from .conversation import utc_now
@@ -25,6 +27,7 @@ class TaskNodeStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     SKIPPED = "skipped"
+    SUPERSEDED = "superseded"
 
 
 class GateStatus(StrEnum):
@@ -153,3 +156,12 @@ class TaskGraphSnapshot:
     nodes: tuple[TaskNode, ...]
     gates: tuple[TaskGate, ...]
     attempts: tuple[NodeAttempt, ...]
+
+
+def task_node_fingerprint(payload: Mapping[str, Any]) -> str:
+    """Return the stable identity of one executable node contract."""
+
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()

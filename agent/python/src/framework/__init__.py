@@ -35,6 +35,7 @@ from .task_graph import (
     TaskGraphStatus,
     TaskNode,
     TaskNodeStatus,
+    task_node_fingerprint,
 )
 
 __all__ = [
@@ -71,6 +72,7 @@ __all__ = [
     "TaskGraphStatus",
     "TaskNode",
     "TaskNodeStatus",
+    "task_node_fingerprint",
     "ToolCall",
     "ToolDefinition",
     "ToolProvider",

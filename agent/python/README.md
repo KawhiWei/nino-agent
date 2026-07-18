@@ -1,4 +1,4 @@
-# Python Agent Runtime API v0.14
+# Python Agent Runtime API v0.15
 
 面向 App、Web 和 Desktop 的 API-first Python Agent Runtime，以 REST + SSE 作为当前产品入口。
 CLI 不是产品入口，ACP 也不在当前实现范围内。
@@ -172,6 +172,8 @@ Task-level Harness architecture, execution semantics, recovery boundaries, and G
 | Advisory Planner | Implemented | Proposes candidate nodes only; no MCP, persistence, scheduling, or final-answer authority |
 | Generic Analyst/Verifier | Implemented | Fresh selected-Skill context, role-policy Tool filtering, and no business-specific Agent cloning |
 | TaskGraph and DAG scheduling | Implemented | Durable Node, dependency, Gate, Attempt, parallel ready-node scheduling, and blocked propagation |
+| Fingerprint-safe reuse | Implemented | Reuse requires identical executable contract, Skill version, bindings, and dependency fingerprints |
+| Reconcile lineage | Implemented | Repair nodes explicitly supersede failed/blocked history and invalidate unfinished affected descendants |
 | Evidence Gate | Implemented | Factual completion requires successful non-reference Tool Observation and contract checks |
 | Independent Verifier | Implemented | Verifier uses a separate execution context, re-queries evidence, and submits a structured verdict |
 | Recovery | Partial | Replays the Root plan and reuses stable completed nodes; does not resume inside a model/tool call or directly from every persisted Ready Node |
@@ -194,7 +196,8 @@ Task-level Harness architecture, execution semantics, recovery boundaries, and G
 | `9e67f80` | Skill orchestration and live evaluation | 强化严格路由、Tool 证据、结构化澄清，并加入 GPT-5.4 联调与评测套件 |
 | `be4427b` | Task-level Harness kernel | 引入 TaskGraph/Node/Gate/Attempt、DAG 调度、独立验证、恢复复用、输入绑定和 Acceptance Contract |
 | `f13ed93` | Real data analysis and fixed evaluation | 完善 PostgreSQL 12.18 数据集、标准题库、真实分析链路和小规模 Eval |
-| `0.14.0 current design` | Planner and generic Agent separation | 拆出 `nino.planner`，将 Analyst/Verifier 去业务化，并保持 Orchestrator 为唯一控制面 |
+| `facbc9e` / `0.14.0` | Planner and generic Agent separation | 拆出 `nino.planner`，将 Analyst/Verifier 去业务化，并保持 Orchestrator 为唯一控制面 |
+| `0.15.0 current design` | Fingerprint-safe Graph reconciliation | 严格 Completed 复用、revision lineage、显式 supersedes 和 Pending 后缀失效 |
 
 这不是按提交消息推测的路线图；完整设计文档同时使用对应提交的代码 diff 与当前代码交叉验证。
 
@@ -435,7 +438,7 @@ it is not accurate to promise that every unmatched request is rejected before an
 
 ## Tests
 
-The current `0.14.0` code passes 62 Python unit tests. Run the suite after implementation changes:
+The current `0.15.0` code passes the complete Python unit suite. Run it after implementation changes:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

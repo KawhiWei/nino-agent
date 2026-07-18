@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -449,6 +450,7 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
                 "repair", "nino_runtime_submit_task_graph_node", {
                     "node_id": "repair", "agent_id": "nino.analyst",
                     "skill_id": "nino-data.analysis", "task": "Repair with corrected query",
+                    "supersedes_node_id": "initial",
                 },
             ),)),
             ModelTurn(text="Reconciled answer"),
@@ -523,6 +525,44 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(RunStatus.COMPLETED, resumed.status)
         self.assertEqual([], unexpected_worker.calls)
+
+        versioned_skills = SkillRegistry(tuple(
+            replace(skill, version="2.0.0")
+            if skill.id == "nino-data.analysis" else skill
+            for skill in self.skills.skills
+        ))
+        changed_worker = EvidenceWorker()
+        changed = await OrchestratorHarness(
+            QueueModel(ModelTurn(tool_calls=(dispatch,)), ModelTurn(text="versioned answer")),
+            versioned_skills, self.agents, lambda _: changed_worker,
+        ).run(trigger.content, on_event=project, run_id=run.id)
+
+        self.assertEqual(RunStatus.COMPLETED, changed.status)
+        self.assertEqual(2, len(changed_worker.calls))
+        changed_snapshot = await repository.get_task_graph(run.id)
+        query_nodes = [
+            item for item in changed_snapshot.nodes
+            if item.metadata.get("logical_node_id") == "query"
+        ]
+        self.assertEqual(2, len(query_nodes))
+        self.assertEqual(
+            {"1.0.0", "2.0.0"},
+            {item.metadata.get("skill_version") for item in query_nodes},
+        )
+        old_query = next(
+            item for item in query_nodes
+            if item.metadata.get("skill_version") == "1.0.0"
+        )
+        new_query = next(
+            item for item in query_nodes
+            if item.metadata.get("skill_version") == "2.0.0"
+        )
+        self.assertEqual("completed", old_query.status.value)
+        self.assertIn(
+            "superseded_by_node_id", old_query.metadata,
+            [dict(item.metadata) for item in query_nodes],
+        )
+        self.assertEqual(new_query.id, old_query.metadata["superseded_by_node_id"])
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from api.app import create_app
 from framework import (
     ActiveRunConflictError, AgentEvent, AgentRun, AttemptStatus, Conversation,
-    ConversationMessage, Message, RunResult, RunStatus, utc_now,
+    ConversationMessage, Message, RunResult, RunStatus, TaskNodeStatus, utc_now,
 )
 from infrastructure import SqliteAgentRepository
 from runtime import AgentRuntimeService
@@ -247,12 +247,14 @@ class RepositoryConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     "node_id": "query", "kind": "specialist",
                     "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                     "task": "Query", "depends_on": [], "gate_kind": "evidence",
+                    "skill_version": "1.0.0", "node_fingerprint": "fingerprint-v1",
                 }],
             }))
             started = AgentEvent(run.id, 2, "agent_started", {
                 "child_run_id": "child-1", "plan_node_id": "query",
                 "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
                 "task": "Query", "depends_on": [], "node_kind": "specialist",
+                "node_fingerprint": "fingerprint-v1",
             })
             self.assertTrue((await controller.record_event(run, started))["execute"])
             await controller.record_event(run, AgentEvent(run.id, 3, "tool_completed", {
@@ -274,6 +276,204 @@ class RepositoryConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(reused["execute"])
             self.assertEqual("already_completed", reused["reason"])
             self.assertEqual("stored answer", reused["result"]["summary"])
+
+            await controller.record_event(run, AgentEvent(run.id, 6, "graph_reconciled", {
+                "revision": 2,
+                "reason": "acceptance_contract_changed",
+                "nodes": [{
+                    "node_id": "query", "kind": "specialist",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                    "task": "Query with stricter contract", "depends_on": [],
+                    "gate_kind": "evidence", "skill_version": "1.0.0",
+                    "node_fingerprint": "fingerprint-v2",
+                }],
+            }))
+            snapshot = await repository.get_task_graph(run.id)
+            query_nodes = [
+                item for item in snapshot.nodes
+                if item.metadata.get("logical_node_id") == "query"
+            ]
+            self.assertEqual(2, len(query_nodes))
+            frozen = next(
+                item for item in query_nodes
+                if item.metadata.get("node_fingerprint") == "fingerprint-v1"
+            )
+            replacement = next(
+                item for item in query_nodes
+                if item.metadata.get("node_fingerprint") == "fingerprint-v2"
+            )
+            self.assertEqual("completed", frozen.status.value)
+            self.assertEqual("stored answer", frozen.result["summary"])
+            self.assertEqual(replacement.id, frozen.metadata["superseded_by_node_id"])
+            self.assertEqual(frozen.id, replacement.metadata["supersedes_node_id"])
+            changed = await controller.record_event(run, AgentEvent(run.id, 7, "agent_started", {
+                **dict(started.data), "child_run_id": "child-3",
+                "task": "Query with stricter contract",
+                "node_fingerprint": "fingerprint-v2",
+            }))
+            self.assertTrue(changed["execute"])
+
+    async def test_reconcile_supersedes_pending_node_and_affected_future(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repository = SqliteAgentRepository(Path(root) / "agent.db")
+            now = utc_now()
+            conversation = Conversation("conversation", None, now, now)
+            run = AgentRun("run", conversation.id)
+            message = ConversationMessage(
+                "message", conversation.id, "user", "分析订单", run.id, now
+            )
+            await repository.create_conversation(conversation)
+            await repository.create_run_with_message(run, message)
+            controller = TaskGraphController(repository, "runtime")
+            await controller.ensure(run, message.content)
+            await controller.start(run, message.content)
+            await controller.record_event(run, AgentEvent(run.id, 1, "graph_planned", {
+                "revision": 1,
+                "reason": "initial_plan",
+                "nodes": [
+                    {
+                        "node_id": "source", "kind": "specialist",
+                        "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                        "task": "Load source", "depends_on": [],
+                        "node_fingerprint": "source-v1",
+                    },
+                    {
+                        "node_id": "report", "kind": "specialist",
+                        "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                        "task": "Build report", "depends_on": ["source"],
+                        "node_fingerprint": "report-v1",
+                    },
+                ],
+            }))
+            before = await repository.get_task_graph(run.id)
+            old_source = next(
+                item for item in before.nodes
+                if item.metadata.get("logical_node_id") == "source"
+            )
+            old_report = next(
+                item for item in before.nodes
+                if item.metadata.get("logical_node_id") == "report"
+            )
+
+            await controller.record_event(run, AgentEvent(run.id, 2, "graph_reconciled", {
+                "revision": 2,
+                "reason": "source_contract_changed",
+                "nodes": [{
+                    "node_id": "corrected-source", "kind": "specialist",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                    "task": "Load corrected source", "depends_on": [],
+                    "node_fingerprint": "source-v2",
+                    "supersedes_node_id": "source",
+                }],
+            }))
+
+            after = await repository.get_task_graph(run.id)
+            persisted_old_source = next(item for item in after.nodes if item.id == old_source.id)
+            persisted_old_report = next(item for item in after.nodes if item.id == old_report.id)
+            new_source = next(
+                item for item in after.nodes
+                if item.metadata.get("logical_node_id") == "corrected-source"
+            )
+            self.assertEqual("superseded", persisted_old_source.status.value)
+            self.assertEqual("superseded", persisted_old_report.status.value)
+            self.assertEqual("pending", new_source.status.value)
+            self.assertEqual(new_source.id, persisted_old_source.metadata["superseded_by_node_id"])
+            self.assertEqual(old_source.id, persisted_old_report.metadata["invalidated_by_node_id"])
+            revisions = after.graph.metadata["revisions"]
+            self.assertEqual([1, 2], [item["revision"] for item in revisions])
+            self.assertEqual(revisions[0]["revision_id"], revisions[1]["parent_revision_id"])
+
+    async def test_reconcile_rejects_explicit_supersede_of_completed_node(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repository = SqliteAgentRepository(Path(root) / "agent.db")
+            now = utc_now()
+            conversation = Conversation("conversation", None, now, now)
+            run = AgentRun("run", conversation.id)
+            message = ConversationMessage(
+                "message", conversation.id, "user", "分析订单", run.id, now
+            )
+            await repository.create_conversation(conversation)
+            await repository.create_run_with_message(run, message)
+            controller = TaskGraphController(repository, "runtime")
+            await controller.ensure(run, message.content)
+            await controller.start(run, message.content)
+            await controller.record_event(run, AgentEvent(run.id, 1, "graph_planned", {
+                "revision": 1,
+                "nodes": [{
+                    "node_id": "source", "kind": "specialist",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                    "task": "Load source", "depends_on": [],
+                    "node_fingerprint": "source-v1",
+                }],
+            }))
+            snapshot = await repository.get_task_graph(run.id)
+            source = next(
+                item for item in snapshot.nodes
+                if item.metadata.get("logical_node_id") == "source"
+            )
+            source.status = TaskNodeStatus.COMPLETED
+            await repository.upsert_task_node(source)
+
+            with self.assertRaisesRegex(
+                RuntimeError, "CANNOT_EXPLICITLY_SUPERSEDE_COMPLETED_NODE"
+            ):
+                await controller.record_event(run, AgentEvent(
+                    run.id, 2, "graph_reconciled", {
+                        "revision": 2,
+                        "nodes": [{
+                            "node_id": "replacement", "kind": "specialist",
+                            "agent_id": "nino.analyst",
+                            "skill_id": "nino-data.analysis",
+                            "task": "Replace source", "depends_on": [],
+                            "node_fingerprint": "source-v2",
+                            "supersedes_node_id": "source",
+                        }],
+                    },
+                ))
+
+    async def test_internal_runtime_action_does_not_satisfy_evidence_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repository = SqliteAgentRepository(Path(root) / "agent.db")
+            now = utc_now()
+            conversation = Conversation("conversation", None, now, now)
+            run = AgentRun("run", conversation.id)
+            message = ConversationMessage("message", conversation.id, "user", "查询", run.id, now)
+            await repository.create_conversation(conversation)
+            await repository.create_run_with_message(run, message)
+            controller = TaskGraphController(repository, "runtime")
+            await controller.ensure(run, message.content)
+            await controller.start(run, message.content)
+            await controller.record_event(run, AgentEvent(run.id, 1, "graph_planned", {
+                "revision": 1,
+                "nodes": [{
+                    "node_id": "query", "kind": "specialist",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                    "task": "Query", "depends_on": [], "node_fingerprint": "query-v1",
+                }],
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 2, "agent_started", {
+                "child_run_id": "child", "plan_node_id": "query",
+                "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                "task": "Query", "depends_on": [], "node_kind": "specialist",
+                "node_fingerprint": "query-v1",
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 3, "tool_completed", {
+                "child_run_id": "child", "tool": "nino_runtime_load_reference",
+                "call_id": "reference", "is_error": False,
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 4, "agent_completed", {
+                "child_run_id": "child", "plan_node_id": "query", "status": "completed",
+                "result_summary": "unsupported claim", "node_result": {},
+            }))
+            snapshot = await repository.get_task_graph(run.id)
+            node = next(
+                item for item in snapshot.nodes
+                if item.metadata.get("logical_node_id") == "query"
+            )
+            gate = next(item for item in snapshot.gates if item.node_id == node.id)
+            self.assertEqual("failed", node.status.value)
+            self.assertEqual("failed", gate.status.value)
+            self.assertEqual((), gate.evidence)
 
 
 if __name__ == "__main__":

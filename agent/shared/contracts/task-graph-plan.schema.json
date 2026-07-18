@@ -19,7 +19,7 @@
     "plannedNode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node_id", "kind", "agent_id", "skill_id", "task", "depends_on", "acceptance_contract", "gate_kind"],
+      "required": ["node_id", "kind", "agent_id", "skill_id", "skill_version", "node_fingerprint", "task", "depends_on", "acceptance_contract", "gate_kind"],
       "properties": {
         "node_id": {
           "type": "string",
@@ -28,6 +28,17 @@
         "kind": { "enum": ["specialist", "verification", "review", "critique"] },
         "agent_id": { "type": "string", "minLength": 1 },
         "skill_id": { "type": "string", "minLength": 1 },
+        "skill_version": { "type": "string", "minLength": 1 },
+        "node_fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Canonical SHA-256 over the executable node contract, including Skill version and dependency fingerprints."
+        },
+        "supersedes_node_id": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
+          "description": "Optional failed or blocked logical node from an earlier revision replaced by this repair node."
+        },
         "task": { "type": "string", "minLength": 1 },
         "depends_on": {
           "type": "array",

@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from framework import (
     AgentEvent, EventHandler, HarnessStepState, LoopKind, LoopStatus, LoopStopReason,
     Message, ModelTurn, RunResult, RunStatus, ToolCall, ToolDefinition, ToolResult,
+    task_node_fingerprint,
 )
 
 from .agents import AgentDefinition, AgentRegistry
@@ -41,6 +42,8 @@ class PlannedDispatch:
     depends_on: tuple[str, ...]
     input_bindings: tuple[InputBinding, ...]
     acceptance_contract: Mapping[str, Any]
+    supersedes_node_id: str | None = None
+    node_fingerprint: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,9 +163,9 @@ class OrchestratorHarness:
                 None, 0, tuple(events),
             )
         used_skills: set[str] = set()
-        successful_dispatches = 0
         node_outcomes: dict[str, bool] = {}
         node_results: dict[str, Mapping[str, Any]] = {}
+        node_fingerprints: dict[str, str] = {}
         planned_node_ids: set[str] = set()
 
         try:
@@ -255,10 +258,22 @@ class OrchestratorHarness:
                         "INVALID_INPUT_BINDING", binding_error,
                         LoopStopReason.POLICY_VIOLATION,
                     ))
+                supersedes_error = self._validate_supersedes(plans, node_outcomes)
+                if supersedes_error is not None:
+                    return await fail(LoopViolation(
+                        "INVALID_SUPERSEDES", supersedes_error,
+                        LoopStopReason.POLICY_VIOLATION,
+                    ))
+                plans = list(self._fingerprint_plans(plans, node_fingerprints))
+                node_fingerprints.update(
+                    (plan.node_id, plan.node_fingerprint) for plan in plans
+                )
                 planned_node_ids.update(plan.node_id for plan in plans)
                 await emit(
                     "graph_planned" if not node_outcomes else "graph_reconciled",
-                    step=step, revision=step, nodes=self._plan_event_nodes(plans),
+                    step=step, revision=step,
+                    reason="initial_plan" if not node_outcomes else "reconcile_failed_work",
+                    nodes=self._plan_event_nodes(plans),
                 )
                 outcomes = await self._execute_plan_batch(
                     plans, node_outcomes, node_results, emit, step, run_id, loop
@@ -267,8 +282,6 @@ class OrchestratorHarness:
                     used_skills.add(outcome.plan.skill_id)
                     node_outcomes[outcome.plan.node_id] = outcome.success
                     node_results[outcome.plan.node_id] = outcome.payload
-                    if outcome.success:
-                        successful_dispatches += 1
                     violation = loop.record_observation(outcome.success)
                     await checkpoint("after_observation")
                     if violation is not None:
@@ -394,11 +407,72 @@ class OrchestratorHarness:
             depends_on=depends,
             input_bindings=bindings,
             acceptance_contract=contract,
+            supersedes_node_id=self._optional_string(
+                call.arguments.get("supersedes_node_id")
+            ),
+        )
+
+    @staticmethod
+    def _optional_string(value: Any) -> str | None:
+        return str(value).strip() or None if value is not None else None
+
+    def _fingerprint_plans(
+        self,
+        plans: Sequence[PlannedDispatch],
+        known: Mapping[str, str],
+    ) -> tuple[PlannedDispatch, ...]:
+        by_id = {plan.node_id: plan for plan in plans}
+        resolved = dict(known)
+        visiting: set[str] = set()
+
+        def fingerprint(node_id: str) -> str:
+            if node_id in resolved:
+                return resolved[node_id]
+            if node_id in visiting:
+                raise ValueError("TaskGraph revision contains a dependency cycle.")
+            visiting.add(node_id)
+            plan = by_id[node_id]
+            dependency_fingerprints = {
+                dependency: (
+                    fingerprint(dependency)
+                    if dependency in by_id
+                    else known.get(dependency, f"unresolved:{dependency}")
+                )
+                for dependency in plan.depends_on
+            }
+            skill = self._skills.get(plan.skill_id)
+            value = task_node_fingerprint({
+                "kind": "specialist",
+                "agent_id": plan.agent.id,
+                "skill_id": plan.skill_id,
+                "skill_version": skill.version,
+                "task": plan.task,
+                "context": plan.context,
+                "dependencies": dependency_fingerprints,
+                "input_bindings": [
+                    {
+                        "name": item.name,
+                        "source_node_id": item.source_node_id,
+                        "selector": item.selector,
+                    }
+                    for item in plan.input_bindings
+                ],
+                "acceptance_contract": dict(plan.acceptance_contract),
+                "supersedes_node_id": plan.supersedes_node_id,
+            })
+            visiting.remove(node_id)
+            resolved[node_id] = value
+            return value
+
+        return tuple(
+            replace(plan, node_fingerprint=fingerprint(plan.node_id))
+            for plan in plans
         )
 
     def _plan_event_nodes(self, plans: Sequence[PlannedDispatch]) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
         for plan in plans:
+            skill = self._skills.get(plan.skill_id)
             nodes.append({
                 "node_id": plan.node_id, "kind": "specialist",
                 "agent_id": plan.agent.id, "skill_id": plan.skill_id,
@@ -412,24 +486,57 @@ class OrchestratorHarness:
                     for item in plan.input_bindings
                 ],
                 "acceptance_contract": dict(plan.acceptance_contract),
+                "supersedes_node_id": plan.supersedes_node_id,
+                "skill_version": skill.version,
+                "node_fingerprint": plan.node_fingerprint,
                 "gate_kind": "evidence",
             })
             previous_node_id = plan.node_id
+            previous_fingerprint = plan.node_fingerprint
             for evaluator_kind, evaluator in self._evaluators_for(plan.skill_id):
                 evaluator_node_id = f"{plan.node_id}.{self._evaluator_suffix(evaluator_kind)}"
+                evaluator_task = (
+                    f"Independently {self._evaluator_verb(evaluator_kind)} node {plan.node_id}"
+                )
+                evaluator_fingerprint = self._evaluator_node_fingerprint(
+                    plan, evaluator_kind, evaluator, previous_node_id,
+                    previous_fingerprint,
+                )
                 nodes.append({
                     "node_id": evaluator_node_id, "kind": evaluator_kind,
                     "agent_id": evaluator.id, "skill_id": plan.skill_id,
-                    "task": f"Independently {self._evaluator_verb(evaluator_kind)} node {plan.node_id}",
+                    "task": evaluator_task,
                     "depends_on": [previous_node_id],
                     "acceptance_contract": dict(plan.acceptance_contract),
+                    "skill_version": skill.version,
+                    "node_fingerprint": evaluator_fingerprint,
                     "gate_kind": (
                         "independent_verification"
                         if evaluator_kind == "verification" else evaluator_kind
                     ),
                 })
                 previous_node_id = evaluator_node_id
+                previous_fingerprint = evaluator_fingerprint
         return nodes
+
+    def _evaluator_node_fingerprint(
+        self,
+        plan: PlannedDispatch,
+        evaluator_kind: str,
+        evaluator: AgentDefinition,
+        previous_node_id: str,
+        previous_fingerprint: str,
+    ) -> str:
+        skill = self._skills.get(plan.skill_id)
+        return task_node_fingerprint({
+            "kind": evaluator_kind,
+            "agent_id": evaluator.id,
+            "skill_id": plan.skill_id,
+            "skill_version": skill.version,
+            "task": f"Independently {self._evaluator_verb(evaluator_kind)} node {plan.node_id}",
+            "dependencies": {previous_node_id: previous_fingerprint},
+            "acceptance_contract": dict(plan.acceptance_contract),
+        })
 
     async def _execute_plan_batch(
         self,
@@ -455,6 +562,7 @@ class OrchestratorHarness:
                 }, ensure_ascii=False), True)
                 await emit(
                     "node_skipped", step=step, plan_node_id=plan.node_id,
+                    node_fingerprint=plan.node_fingerprint,
                     reason="dependency_failed", depends_on=list(plan.depends_on),
                 )
                 await emit(
@@ -510,6 +618,7 @@ class OrchestratorHarness:
             child_run_id=child_run_id, plan_node_id=plan.node_id,
             agent_id=plan.agent.id, skill_id=plan.skill_id, task=plan.task,
             depends_on=list(plan.depends_on), node_kind="specialist",
+            node_fingerprint=plan.node_fingerprint,
         )
         child_sections = [plan.task]
         if plan.context:
@@ -587,6 +696,7 @@ class OrchestratorHarness:
         evaluations: list[dict[str, Any]] = []
         passed = child.status == RunStatus.COMPLETED
         previous_node_id = plan.node_id
+        previous_fingerprint = plan.node_fingerprint
         claim = child.answer
         for evaluator_kind, evaluator in self._evaluators_for(plan.skill_id):
             if not passed:
@@ -602,11 +712,16 @@ class OrchestratorHarness:
                 f"{json.dumps(plan.acceptance_contract, ensure_ascii=False)}"
                 f"\n\nClaim to evaluate:\n{claim}"
             )
+            evaluator_fingerprint = self._evaluator_node_fingerprint(
+                plan, evaluator_kind, evaluator, previous_node_id,
+                previous_fingerprint,
+            )
             evaluator_claim = await emit(
                 "agent_started", step=step, parent_run_id=run_id,
                 child_run_id=evaluator_run_id, plan_node_id=evaluator_node_id,
                 agent_id=evaluator.id, skill_id=plan.skill_id, task=evaluator_task,
                 node_kind=evaluator_kind, depends_on=[previous_node_id],
+                node_fingerprint=evaluator_fingerprint,
             )
 
             async def forward_evaluator_event(evaluator_event: AgentEvent) -> None:
@@ -674,6 +789,7 @@ class OrchestratorHarness:
                 )
             claim = json.dumps(verdict_payload, ensure_ascii=False)
             previous_node_id = evaluator_node_id
+            previous_fingerprint = evaluator_fingerprint
         child_outputs = child_node_result.get("outputs", {})
         payload = {
             "kind": "dispatch_result", "status": "completed" if passed else "failed",
@@ -734,6 +850,32 @@ class OrchestratorHarness:
                         f"{binding.selector}"
                     )
                 names.add(binding.name)
+        return None
+
+    @staticmethod
+    def _validate_supersedes(
+        plans: Sequence[PlannedDispatch], known: Mapping[str, bool]
+    ) -> str | None:
+        current_ids = {plan.node_id for plan in plans}
+        for plan in plans:
+            target = plan.supersedes_node_id
+            if target is None:
+                continue
+            if target == plan.node_id or target in current_ids:
+                return (
+                    f"Node {plan.node_id} may supersede only a node from an earlier revision."
+                )
+            if target in plan.depends_on:
+                return (
+                    f"Node {plan.node_id} cannot depend on the failed node it supersedes: "
+                    f"{target}"
+                )
+            if target not in known:
+                return f"Node {plan.node_id} supersedes unknown historical node: {target}"
+            if known[target]:
+                return (
+                    f"Node {plan.node_id} cannot supersede successful historical node: {target}"
+                )
         return None
 
     @staticmethod
@@ -865,6 +1007,14 @@ class OrchestratorHarness:
                     "context": {"type": "string"},
                     "node_id": {
                         "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+                    },
+                    "supersedes_node_id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$",
+                        "description": (
+                            "Optional failed or blocked node from an earlier revision that this "
+                            "repair node replaces."
+                        ),
                     },
                     "depends_on": {
                         "type": "array", "uniqueItems": True,
