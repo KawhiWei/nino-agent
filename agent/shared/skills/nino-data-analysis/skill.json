@@ -97,7 +97,7 @@
       "description": "Required report structure and presentation rules."
     }
   ],
-  "evaluation_suites": ["evals/standard.json"],
+  "evaluation_suites": ["../../question-banks/nino-data-analysis/standard.json"],
   "max_steps": 5,
   "is_default": false
 }

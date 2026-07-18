@@ -11,8 +11,8 @@ class EvaluationSuiteTests(unittest.TestCase):
 
         self.assertEqual("nino-data.analysis", suite.skill_id)
         self.assertEqual("nino-data.analysis.standard", suite.id)
-        self.assertEqual(12, len(suite.cases))
-        self.assertEqual(7, sum("smoke" in case.tags for case in suite.cases))
+        self.assertEqual(8, len(suite.cases))
+        self.assertEqual(5, sum("smoke" in case.tags for case in suite.cases))
         self.assertEqual(len(suite.cases), len({case.id for case in suite.cases}))
         self.assertTrue(all(case.derived_from for case in suite.cases))
 

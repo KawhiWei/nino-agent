@@ -24,6 +24,7 @@ class RuntimeSettings:
     model_base_url: str = ""
     model_thinking: str = ""
     model_reasoning_effort: str = ""
+    model_timeout_seconds: float = 150.0
     mcp_url: str = "http://127.0.0.1:8091/mcp"
     mcp_servers: tuple[McpServerConfig, ...] = ()
     loop_hard_max_steps: int = 8
@@ -45,6 +46,7 @@ class RuntimeSettings:
             model_base_url=os.getenv("INCERRY_OPENAI_BASE_URL", ""),
             model_thinking=os.getenv("NINO_MODEL_THINKING", "").lower(),
             model_reasoning_effort=os.getenv("NINO_MODEL_REASONING_EFFORT", "").lower(),
+            model_timeout_seconds=float(os.getenv("NINO_MODEL_TIMEOUT_SECONDS", "150")),
             mcp_url=fallback_mcp_url,
             mcp_servers=load_mcp_server_configs(
                 os.getenv("NINO_MCP_SERVERS", ""), fallback_mcp_url
@@ -170,6 +172,7 @@ def _build_model(settings: RuntimeSettings) -> ChatModel:
     if settings.model_adapter == "native":
         return OpenAICompatibleChatModel(
             **common,
+            timeout_seconds=settings.model_timeout_seconds,
             thinking_mode=settings.model_thinking,
             reasoning_effort=settings.model_reasoning_effort,
         )

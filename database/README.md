@@ -1,5 +1,9 @@
 # Nino Data Demo Database
 
+The local database runs PostgreSQL `12.18` and is initialized from deterministic SQL only. The
+dataset contains 25,040 orders and more than 100,000 related rows across twelve months, including
+fixed Golden Cases plus generated payment, refund, resource, and anomaly scenarios.
+
 ## Start
 
 ```bash
@@ -52,6 +56,15 @@ To recreate the demo database from migration and seed files, remove this project
 ```bash
 docker compose down -v
 docker compose up -d db
+```
+
+This reset is required after changing the PostgreSQL image or seed because `/docker-entrypoint-initdb.d`
+scripts run only when the data volume is empty. Verify `server_version` and row counts after reset:
+
+```bash
+docker compose exec -T db psql -U nino -d nino_data_demo -c \
+  "SELECT current_setting('server_version');"
+docker compose exec -T db psql -U nino -d nino_data_demo < database/tests/assertions.sql
 ```
 
 This deletes only the `nino-agent` synthetic demo database volume. Never use these development credentials outside a local environment.

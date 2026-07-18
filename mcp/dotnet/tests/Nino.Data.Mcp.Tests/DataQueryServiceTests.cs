@@ -35,19 +35,19 @@ public sealed class DataQueryServiceTests
             new DateOnly(2026, 7, 1), new DateOnly(2026, 8, 1), "channel",
             CancellationToken.None);
 
-        Assert.Equal(3, result.Groups.Count);
-        Assert.Equal(38, result.Totals.OrderCount);
-        Assert.Equal(22475, result.Totals.CustomerSaleAmount);
-        Assert.Equal(18405, result.Totals.NetSupplierCost);
-        Assert.Equal(22475, result.Totals.PaidAmount);
-        Assert.Equal(2600, result.Totals.SuccessfulRefundAmount);
-        Assert.Equal(1470, result.Totals.DemoGrossMargin);
-        Assert.Equal(38, result.Groups.Sum(group => group.OrderCount));
-        Assert.Equal(22475, result.Groups.Sum(group => group.CustomerSaleAmount));
-        Assert.Equal(18405, result.Groups.Sum(group => group.NetSupplierCost));
-        Assert.Equal(22475, result.Groups.Sum(group => group.PaidAmount));
-        Assert.Equal(2600, result.Groups.Sum(group => group.SuccessfulRefundAmount));
-        Assert.Equal(1470, result.Groups.Sum(group => group.DemoGrossMargin));
+        Assert.Equal(4, result.Groups.Count);
+        Assert.Equal(2042, result.Totals.OrderCount);
+        Assert.Equal(2282430, result.Totals.CustomerSaleAmount);
+        Assert.Equal(1958219, result.Totals.NetSupplierCost);
+        Assert.Equal(2282430, result.Totals.PaidAmount);
+        Assert.Equal(15770, result.Totals.SuccessfulRefundAmount);
+        Assert.Equal(308441, result.Totals.DemoGrossMargin);
+        Assert.Equal(2042, result.Groups.Sum(group => group.OrderCount));
+        Assert.Equal(2282430, result.Groups.Sum(group => group.CustomerSaleAmount));
+        Assert.Equal(1958219, result.Groups.Sum(group => group.NetSupplierCost));
+        Assert.Equal(2282430, result.Groups.Sum(group => group.PaidAmount));
+        Assert.Equal(15770, result.Groups.Sum(group => group.SuccessfulRefundAmount));
+        Assert.Equal(308441, result.Groups.Sum(group => group.DemoGrossMargin));
     }
 
     [Fact]
@@ -63,6 +63,8 @@ public sealed class DataQueryServiceTests
         Assert.Equal(5, result.Items.Count);
         Assert.Equal("DEMO-202607-032", result.Items[0].OrderSerialId);
         Assert.Equal(-450, result.Items[0].DemoGrossMargin);
+        Assert.Equal("SYN-018615", result.Items[3].OrderSerialId);
+        Assert.Equal(-76.5m, result.Items[3].DemoGrossMargin);
         Assert.All(result.Items, item => Assert.True(item.DemoGrossMargin < 0));
         Assert.Equal(
             result.Items.OrderBy(item => item.DemoGrossMargin).Select(item => item.OrderSerialId),

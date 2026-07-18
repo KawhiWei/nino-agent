@@ -759,7 +759,9 @@ cd agent/python
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Live benchmark 位于 `agent/python/evals/live_benchmark.py`，用于真实模型和 MCP 链路；单元测试通过不
+固定标准题库位于 `agent/shared/question-banks/<capability>/`，由所有语言 Runtime 共享。测试运行时
+不得临时生成题目；Skill、Tool、指标口径或种子真值变化时，人工更新预期并提升题库版本。Live
+benchmark 位于 `agent/python/evals/live_benchmark.py`，用于真实模型和 MCP 链路；单元测试通过不
 等于真实模型路由、参数和解释质量已经达到生产要求。
 
 ## 22. Git 演进历史

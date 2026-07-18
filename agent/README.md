@@ -6,6 +6,7 @@ Server implementations are separated by language. Cross-language compatibility i
 agent/
 ├── shared/
 │   ├── contracts/       # Language-neutral JSON schemas
+│   ├── question-banks/  # Versioned cross-language fixed evaluation suites
 │   ├── skills/          # Workflow instructions and on-demand references
 │   └── agents/          # Primary and specialist role definitions
 ├── python/

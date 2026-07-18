@@ -264,6 +264,7 @@ The API contract does not change when the engine or model adapter changes.
 | `INCERRY_OPENAI_BASE_URL` | OpenAI-compatible `/v1` URL | Required in `live` mode. |
 | `NINO_MODEL_THINKING` | empty, `enabled`, `disabled` | Optional compatible-gateway thinking control. |
 | `NINO_MODEL_REASONING_EFFORT` | empty, `high`, `max` | Optional thinking effort. |
+| `NINO_MODEL_TIMEOUT_SECONDS` | positive seconds | Model HTTP timeout; defaults to 150 so orchestration requests are not cut off by the old 60-second adapter limit. |
 | `NINO_MCP_URL` | MCP endpoint | Defaults to `http://127.0.0.1:8091/mcp`. |
 | `NINO_MCP_SERVERS` | JSON server array | Multi-MCP catalog; empty keeps the single-URL fallback. |
 | `NINO_STORAGE_PATH` | SQLite file | Defaults to `nino-agent-storage/nino-agent.db`. |
@@ -288,6 +289,11 @@ export OPENAI_API_KEY='<your-key>'
 export INCERRY_OPENAI_BASE_URL='http://core.dns-pro.net:13001/v1'
 export NINO_MCP_URL=http://127.0.0.1:8091/mcp
 ```
+
+The Docker Compose profile fixes `NINO_RUNTIME_MODE=live`, `NINO_AGENT_ENGINE=lightweight`, and
+`NINO_MODEL_ADAPTER=native`. It injects `OPENAI_API_KEY` from the host shell and fails Compose
+validation when the key is absent. Demo mode remains available only for local tests or an explicitly
+constructed non-Docker Runtime.
 
 The Runtime ignores `NINO_MODEL_NAME`, `NINO_MODEL_API_KEY`, `NINO_MODEL_BASE_URL`,
 `OPENAI_MODEL`, and `OPENAI_BASE_URL`. Do not place the API key in project files.

@@ -18,7 +18,7 @@ INTERNAL_TOOLS = {
 }
 DEFAULT_SUITE = (
     Path(__file__).resolve().parents[2]
-    / "shared/skills/nino-data-analysis/evals/standard.json"
+    / "shared/question-banks/nino-data-analysis/standard.json"
 )
 
 
@@ -55,11 +55,23 @@ def load_suite(path: Path) -> EvaluationSuite:
 
     resolved = path.resolve()
     raw = json.loads(resolved.read_text(encoding="utf-8"))
-    skill_dir = resolved.parent.parent
-    manifest_path = skill_dir / "skill.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if raw.get("skill_id") != manifest.get("id"):
-        raise ValueError("Evaluation suite skill_id does not match its Skill manifest.")
+    shared_dir = next(
+        (parent for parent in resolved.parents if (parent / "skills").is_dir()),
+        None,
+    )
+    if shared_dir is None:
+        raise ValueError("Evaluation suite must be located under the shared contract directory.")
+    manifests = []
+    for manifest_path in (shared_dir / "skills").glob("*/skill.json"):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("id") == raw.get("skill_id"):
+            manifests.append((manifest_path.parent, manifest))
+    if len(manifests) != 1:
+        raise ValueError(
+            f"Evaluation suite skill_id must match exactly one Skill manifest: "
+            f"{raw.get('skill_id')!r}."
+        )
+    skill_dir, manifest = manifests[0]
     declared = {
         (skill_dir / relative).resolve()
         for relative in manifest.get("evaluation_suites", ())

@@ -28,6 +28,8 @@ class OpenAICompatibleChatModel:
             raise ValueError("OPENAI_API_KEY is required.")
         if not base_url.strip():
             raise ValueError("INCERRY_OPENAI_BASE_URL is required.")
+        if timeout_seconds <= 0:
+            raise ValueError("NINO_MODEL_TIMEOUT_SECONDS must be positive.")
         self._model = model.strip()
         self._api_key = api_key.strip()
         self._endpoint = f"{base_url.strip().rstrip('/')}/chat/completions"

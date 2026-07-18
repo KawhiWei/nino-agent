@@ -17,12 +17,14 @@ class RuntimeSettingsTests(unittest.TestCase):
             "NINO_MODEL_BASE_URL": "http://ignored.test/v1",
             "OPENAI_MODEL": "also-ignored",
             "OPENAI_BASE_URL": "http://also-ignored.test/v1",
+            "NINO_MODEL_TIMEOUT_SECONDS": "123",
         }, clear=True):
             settings = RuntimeSettings.from_env()
 
         self.assertEqual("gpt-5.4", settings.model_name)
         self.assertEqual("test-key", settings.model_api_key)
         self.assertEqual("http://model.test/v1", settings.model_base_url)
+        self.assertEqual(123, settings.model_timeout_seconds)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,8 @@ Rules:
     limit using `min`; business definitions may tighten but never widen execution budgets.
 11. `excluded_intent_keywords` are evaluated before positive `intent_keywords`. An unmatched request
     must not fall back to a default Skill or reach the model.
-12. Each production Skill should declare versioned `evaluation_suites`. Every case records
+12. Each production Skill should declare versioned `evaluation_suites` stored under
+    `question-banks/<capability>/`. Every case records
     `derived_from` provenance and may only reference Tools and References owned by that Skill.
 
 Python loads this directory through `NINO_SKILLS_PATH` and `NINO_AGENTS_PATH`. Future Node.js and
