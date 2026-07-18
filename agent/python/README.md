@@ -1,4 +1,4 @@
-# Python Agent Runtime API v0.15
+# Python Agent Runtime API v0.16
 
 面向 App、Web 和 Desktop 的 API-first Python Agent Runtime，以 REST + SSE 作为当前产品入口。
 CLI 不是产品入口，ACP 也不在当前实现范围内。
@@ -20,6 +20,7 @@ TaskGraph 中必需节点及其 Gate 均满足后，Root Run 才能完成。
 1. 本 README：安装、运行、API、配置和能力边界。
 2. [任务级 Harness 完整设计](../../doc/task-level-harness-design.md)：设计动机、领域模型、完整调用链、代码映射、恢复语义、Git 演进和取舍。
 3. [gpt-5.4 Agent Runbook](../../doc/gpt-5.4-agent-runbook.md)：真实模型启动、Tool Calling 联调与验收。
+4. [React Web README](../../web/react/README.md)：浏览器客户端、单请求 SSE 和断线恢复。
 
 ## Architecture
 
@@ -211,7 +212,20 @@ curl -s http://127.0.0.1:8090/api/v1/conversations \
   -d '{"title":"July data analysis"}'
 ```
 
-Submit a message. The API returns `202 Accepted` and a `run_id` immediately:
+For interactive clients, submit a message and consume the complete Agent event stream in the same
+HTTP response:
+
+```bash
+curl -N http://127.0.0.1:8090/api/v1/conversations/{conversation_id}/messages/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"查询订单 DEMO-202607-001 的收入、成本和毛利"}'
+```
+
+The stream starts with `run_accepted`, continues with persisted model/tool/progress events, and ends
+with `run_result`, which contains the authoritative status, answer, and error fields. Disconnecting
+the HTTP response does not cancel the durable Run.
+
+The asynchronous compatibility endpoint returns `202 Accepted` and a `run_id` immediately:
 
 ```bash
 curl -s http://127.0.0.1:8090/api/v1/conversations/{conversation_id}/messages \
@@ -219,7 +233,7 @@ curl -s http://127.0.0.1:8090/api/v1/conversations/{conversation_id}/messages \
   -d '{"content":"查询订单 DEMO-202607-001 的收入、成本和毛利"}'
 ```
 
-Stream events:
+Reconnect to or replay an existing Run:
 
 ```bash
 curl -N http://127.0.0.1:8090/api/v1/runs/{run_id}/events/stream
@@ -256,11 +270,12 @@ curl -s -X POST http://127.0.0.1:8090/api/v1/runs/{run_id}/cancel
 | `GET` | `/api/v1/conversations/{id}/messages` | Read conversation messages |
 | `GET` | `/api/v1/conversations/{id}/context` | Read persisted context-compaction state |
 | `GET` | `/api/v1/conversations/{id}/runs` | Read conversation runs |
-| `POST` | `/api/v1/conversations/{id}/messages` | Queue one ReAct run |
+| `POST` | `/api/v1/conversations/{id}/messages/stream` | Submit one message and stream the complete Run in the same response |
+| `POST` | `/api/v1/conversations/{id}/messages` | Queue one ReAct run for asynchronous compatibility |
 | `GET` | `/api/v1/runs/{id}` | Read run state/result |
 | `POST` | `/api/v1/runs/{id}/cancel` | Cancel queued/running run |
 | `GET` | `/api/v1/runs/{id}/events` | Read replayable event history |
-| `GET` | `/api/v1/runs/{id}/events/stream` | Stream SSE events |
+| `GET` | `/api/v1/runs/{id}/events/stream` | Reconnect to or replay persisted SSE events |
 | `GET` | `/api/v1/runs/{id}/loop-checkpoint` | Read latest persisted Loop state; optional `kind` filter |
 | `GET` | `/api/v1/runs/{id}/task-graph` | Read complete durable Graph snapshot |
 | `GET` | `/api/v1/runs/{id}/task-graph/lint` | Validate Graph dependency, Gate and Attempt invariants |

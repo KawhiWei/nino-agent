@@ -166,6 +166,7 @@ def create_app(
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Last-Event-ID"],
+        expose_headers=["Location", "X-Run-ID"],
     )
 
     @app.exception_handler(ResourceNotFoundError)
@@ -348,6 +349,31 @@ def create_app(
         run = await container.service.submit_message(conversation_id, body.content)
         return RunAcceptedResponse.model_validate(run)
 
+    @app.post(
+        "/api/v1/conversations/{conversation_id}/messages/stream",
+        response_class=StreamingResponse,
+        tags=["runs"],
+    )
+    async def submit_message_stream(
+        conversation_id: str, body: CreateMessageRequest
+    ) -> StreamingResponse:
+        run = await container.service.submit_message(conversation_id, body.content)
+        accepted = RunAcceptedResponse.model_validate(run)
+
+        async def generate() -> AsyncIterator[str]:
+            accepted_data = json.dumps(accepted.model_dump(), ensure_ascii=False)
+            yield f"id: 0\nevent: run_accepted\ndata: {accepted_data}\n\n"
+            async for chunk in generate_run_events(run.id, 0):
+                yield chunk
+
+        return event_stream_response(
+            generate(),
+            headers={
+                "Location": f"/api/v1/runs/{run.id}",
+                "X-Run-ID": run.id,
+            },
+        )
+
     @app.get("/api/v1/runs/{run_id}", response_model=RunResponse, tags=["runs"])
     async def get_run(run_id: str) -> RunResponse:
         return _run_payload(await container.service.get_run(run_id))
@@ -449,27 +475,34 @@ def create_app(
         await container.service.get_run(run_id)
         cursor = max(after, int(last_event_id)) if last_event_id and last_event_id.isdigit() else after
 
-        async def generate() -> AsyncIterator[str]:
-            nonlocal cursor
-            while True:
-                events = await container.service.wait_for_events(run_id, cursor, 15.0)
-                for event in events:
-                    cursor = event.sequence
-                    data = json.dumps(_event_payload(event).model_dump(), ensure_ascii=False)
-                    yield f"id: {event.sequence}\nevent: {event.type}\ndata: {data}\n\n"
-                run = await container.service.get_run(run_id)
-                if run.status in TERMINAL_STATUSES:
-                    break
-                if not events:
-                    yield ": keep-alive\n\n"
+        return event_stream_response(generate_run_events(run_id, cursor))
 
+    async def generate_run_events(run_id: str, cursor: int) -> AsyncIterator[str]:
+        while True:
+            events = await container.service.wait_for_events(run_id, cursor, 15.0)
+            for event in events:
+                cursor = event.sequence
+                data = json.dumps(_event_payload(event).model_dump(), ensure_ascii=False)
+                yield f"id: {event.sequence}\nevent: {event.type}\ndata: {data}\n\n"
+            run = await container.service.get_run(run_id)
+            if run.status in TERMINAL_STATUSES:
+                data = json.dumps(_run_payload(run).model_dump(mode="json"), ensure_ascii=False)
+                yield f"event: run_result\ndata: {data}\n\n"
+                break
+            if not events:
+                yield ": keep-alive\n\n"
+
+    def event_stream_response(
+        content: AsyncIterator[str], *, headers: dict[str, str] | None = None
+    ) -> StreamingResponse:
         return StreamingResponse(
-            generate(),
+            content,
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-transform",
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
+                **(headers or {}),
             },
         )
 

@@ -1,0 +1,30 @@
+# Nino Agent Web (React)
+
+基于 React、TypeScript、Vite 和 Semi Design AI Chat 组件的轻量会话客户端。
+
+客户端通过 `POST /api/v1/conversations/{id}/messages/stream` 在一次请求中提交消息并消费完整
+Run 事件流。页面刷新或网络连接中断后，会查询当前会话的 active Run，并通过
+`GET /api/v1/runs/{id}/events/stream` 重放事件、继续接收结果，不会重复提交用户消息。
+
+## 本地运行
+
+先启动 Nino Python Runtime（默认 `http://127.0.0.1:8090`），再启动前端：
+
+```bash
+cd web/react
+npm install
+npm run dev
+```
+
+打开 `http://127.0.0.1:5173`。开发服务器会把 `/api` 和 `/health` 代理到
+`NINO_API_TARGET`，默认值为 `http://127.0.0.1:8090`。
+
+## 配置
+
+复制 `.env.example` 的配置项到 `.env.local` 后按需修改：
+
+- `NINO_API_TARGET`：Vite 开发代理的后端地址。
+- `VITE_NINO_API_BASE_URL`：浏览器直接请求的 API 地址；留空时使用同源代理。
+
+生产部署时，推荐由反向代理把 `/api` 转发给 Nino Runtime；也可以在构建时设置
+`VITE_NINO_API_BASE_URL`。后端需要通过 `NINO_CORS_ORIGINS` 放行对应前端域名。

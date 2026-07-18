@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import time
 import unittest
@@ -163,6 +164,55 @@ class AgentApiTests(unittest.TestCase):
             self.assertIn("event: run_started", body)
             self.assertIn("event: tool_completed", body)
             self.assertIn("event: run_completed", body)
+
+    def test_message_stream_submits_and_streams_run_in_one_request(self) -> None:
+        with TestClient(self.app()) as client:
+            conversation_id = client.post("/api/v1/conversations", json={}).json()["id"]
+
+            with client.stream(
+                "POST",
+                f"/api/v1/conversations/{conversation_id}/messages/stream",
+                json={"content": "统计 2026 年 7 月各业务线毛利"},
+            ) as response:
+                self.assertEqual(200, response.status_code)
+                self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+                self.assertEqual("no-cache, no-transform", response.headers["cache-control"])
+                run_id = response.headers["x-run-id"]
+                self.assertEqual(f"/api/v1/runs/{run_id}", response.headers["location"])
+                body = "\n".join(response.iter_lines())
+
+            self.assertLess(body.index("event: run_accepted"), body.index("event: run_started"))
+            self.assertIn("event: tool_completed", body)
+            self.assertIn("event: run_completed", body)
+            self.assertIn("event: run_result", body)
+
+            accepted_block = next(
+                block for block in body.split("\n\n")
+                if "event: run_accepted" in block
+            )
+            accepted_data = next(
+                line.removeprefix("data: ")
+                for line in accepted_block.splitlines()
+                if line.startswith("data: ")
+            )
+            self.assertEqual(run_id, json.loads(accepted_data)["run_id"])
+            result_block = next(
+                block for block in body.split("\n\n")
+                if "event: run_result" in block
+            )
+            result_data = next(
+                line.removeprefix("data: ")
+                for line in result_block.splitlines()
+                if line.startswith("data: ")
+            )
+            result = json.loads(result_data)
+            self.assertEqual("completed", result["status"])
+            self.assertIn("demo_gross_margin", result["answer"])
+            self.assertEqual("completed", client.get(f"/api/v1/runs/{run_id}").json()["status"])
+            messages = client.get(
+                f"/api/v1/conversations/{conversation_id}/messages"
+            ).json()
+            self.assertEqual(["user", "assistant"], [item["role"] for item in messages])
 
     def test_not_found_uses_stable_error_envelope(self) -> None:
         with TestClient(self.app()) as client:
