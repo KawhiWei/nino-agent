@@ -140,6 +140,41 @@ class EvidenceWorker(FakeWorker):
         return result
 
 
+class AssuranceRepairWorker(FakeWorker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.verification_count = 0
+
+    async def run(
+        self, task: str, *, run_id: str, selected_skill_id: str | None = None,
+        on_event=None,
+    ) -> RunResult:
+        self.calls.append((task, selected_skill_id))
+        if on_event is not None:
+            await on_event(AgentEvent(run_id, 1, "tool_completed", {
+                "tool": "nino_data_query_summary", "call_id": f"tool:{run_id}",
+                "is_error": False,
+            }))
+        if task.startswith("Independently"):
+            self.verification_count += 1
+            passed = self.verification_count > 1
+            answer = json.dumps({
+                "verdict": "passed" if passed else "failed",
+                "evidence_level": "proved",
+                "checked_requirements": ["evidence"],
+                "failed_requirements": [] if passed else ["consistent summary"],
+                "concerns": [] if passed else ["summary contradicts outputs"],
+            })
+        else:
+            answer = json.dumps({
+                "status": "completed", "summary": "verified repair candidate",
+                "outputs": {"lowest_rate": "AIR_TICKET"},
+            })
+        return RunResult(
+            run_id, RunStatus.COMPLETED, answer, selected_skill_id, 1, (),
+        )
+
+
 class ClarificationWorker(FakeWorker):
     async def run(
         self, task: str, *, run_id: str, selected_skill_id: str | None = None,
@@ -554,6 +589,103 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
             if event.type in {"graph_planned", "graph_reconciled"}
         ]
         self.assertEqual(["graph_planned", "graph_reconciled"], graph_events)
+
+    async def test_assurance_failure_repairs_without_superseding_completed_worker(self) -> None:
+        repository = InMemoryAgentRepository()
+        now = utc_now()
+        conversation = Conversation("assurance-repair", None, now, now)
+        run = AgentRun("assurance-repair-run", conversation.id)
+        trigger = ConversationMessage(
+            "assurance-repair-trigger", conversation.id, "user",
+            "重新查询并修正不一致的业务线毛利结论", run.id, now,
+        )
+        await repository.create_conversation(conversation)
+        await repository.create_run_with_message(run, trigger)
+        controller = TaskGraphController(repository, "runtime")
+        await controller.ensure(run, trigger.content)
+        await controller.start(run, trigger.content)
+
+        async def project(event: AgentEvent):
+            return await controller.record_event(run, event)
+
+        model = QueueModel(
+            ModelTurn(tool_calls=(ToolCall(
+                "first", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "initial", "agent_id": "nino.analyst",
+                    "skill_id": "nino-data.analysis", "task": "Initial query",
+                },
+            ),)),
+            ModelTurn(tool_calls=(ToolCall(
+                "repair", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "repair", "agent_id": "nino.analyst",
+                    "skill_id": "nino-data.analysis", "task": "Correct summary",
+                    "supersedes_node_id": "initial",
+                },
+            ),)),
+            ModelTurn(text="Corrected verified answer"),
+        )
+        worker = AssuranceRepairWorker()
+
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: worker
+        ).run(trigger.content, on_event=project, run_id=run.id)
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        reconciled = next(
+            event for event in result.events if event.type == "graph_reconciled"
+        )
+        repair = next(
+            node for node in reconciled.data["nodes"] if node["node_id"] == "repair"
+        )
+        self.assertIsNone(repair["supersedes_node_id"])
+        self.assertEqual(2, worker.verification_count)
+        self.assertIn(
+            "automatically submit an independent repair node",
+            model.messages[1][2].content,
+        )
+        snapshot = await repository.get_task_graph(run.id)
+        initial = next(
+            node for node in snapshot.nodes
+            if node.metadata.get("logical_node_id") == "initial"
+        )
+        repaired = next(
+            node for node in snapshot.nodes
+            if node.metadata.get("logical_node_id") == "repair"
+        )
+        self.assertEqual("completed", initial.status.value)
+        self.assertEqual("completed", repaired.status.value)
+        self.assertIsNone(repaired.metadata.get("supersedes_node_id"))
+
+    async def test_history_only_follow_up_bypasses_evidence_worker(self) -> None:
+        model = QueueModel(
+            ModelTurn(tool_calls=(ToolCall(
+                "history", "nino_runtime_answer_from_history", {},
+            ),)),
+            ModelTurn(text="金额看绝对毛利，毛利率看相对收入比例。"),
+        )
+        worker = FakeWorker()
+
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: worker
+        ).run(
+            "为什么两个排名不同？",
+            history=(Message(
+                role="assistant",
+                content="TRAIN_TICKET 毛利最低，AIR_TICKET 毛利率最低。",
+            ),),
+        )
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        self.assertEqual("金额看绝对毛利，毛利率看相对收入比例。", result.answer)
+        self.assertEqual([], worker.calls)
+        self.assertIn(
+            "nino_runtime_answer_from_history",
+            {tool.name for tool in model.tools[0]},
+        )
+        self.assertIn(
+            "TRAIN_TICKET 毛利最低",
+            model.messages[1][1].content,
+        )
 
     async def test_reuses_completed_worker_and_evaluator_nodes_after_root_restart(self) -> None:
         repository = InMemoryAgentRepository()

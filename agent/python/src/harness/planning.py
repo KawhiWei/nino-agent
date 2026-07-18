@@ -12,6 +12,7 @@ from .react import CLARIFICATION_TOOL_NAME
 
 PLAN_NODE_TOOL_NAME = "nino_runtime_submit_task_graph_node"
 REJECT_TOOL_NAME = "nino_runtime_reject_request"
+HISTORY_ANSWER_TOOL_NAME = "nino_runtime_answer_from_history"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +41,11 @@ class PlannerHarness:
         node_results: Mapping[str, Mapping[str, Any]] | None = None,
         semantic_fallback: bool = False,
     ) -> PlanningDecision:
+        has_assistant_history = any(item.role == "assistant" for item in history)
         tools = (
             self.plan_node_tool(candidates),
             self.clarification_tool(),
+            *((self.history_answer_tool(),) if has_assistant_history else ()),
             *((self.reject_tool(),) if semantic_fallback else ()),
         )
         state = {
@@ -51,6 +54,9 @@ class PlannerHarness:
                 "summary": result.get("summary"),
                 "concerns": result.get("concerns", []),
                 "recommended_next": result.get("recommended_next", []),
+                "work_status": result.get("work_status"),
+                "assurance_status": result.get("assurance_status"),
+                "supersedable": result.get("supersedable"),
             }
             for node_id, result in (node_results or {}).items()
         }
@@ -62,7 +68,15 @@ class PlannerHarness:
                 content=(
                     f"Propose TaskGraph revision {revision}. Existing compact node state:\n"
                     f"{json.dumps(state, ensure_ascii=False)}\n"
-                    "Submit only new pending work. Never repeat completed nodes."
+                    "Submit only new pending work. Never repeat completed nodes. Use "
+                    "supersedes_node_id only when the target explicitly has supersedable=true. "
+                    "If work_status=completed but assurance_status=failed and supersedable=false, "
+                    "automatically submit an independent repair node with a new node_id, no "
+                    "supersedes_node_id, and no dependency on the rejected node; do not ask the "
+                    "user for permission to perform this read-only repair. "
+                    "When the request only explains, compares, reformats, or calculates from "
+                    "facts already present in prior assistant answers, use the history-answer "
+                    "control Action instead of dispatching a worker."
                 ),
             ),
             *history,
@@ -80,6 +94,8 @@ class PlannerHarness:
                 return PlanningDecision(
                     "clarification", message=str(call.arguments.get("message", "")).strip()
                 )
+            if call.name == HISTORY_ANSWER_TOOL_NAME and has_assistant_history:
+                return PlanningDecision("history_answer")
             if call.name == REJECT_TOOL_NAME and semantic_fallback:
                 return PlanningDecision(
                     "reject", message=str(call.arguments.get("reason", "")).strip()
@@ -127,6 +143,19 @@ class PlannerHarness:
         from .orchestrator import OrchestratorHarness
 
         return OrchestratorHarness._clarification_tool()
+
+    @staticmethod
+    def history_answer_tool() -> ToolDefinition:
+        return ToolDefinition(
+            HISTORY_ANSWER_TOOL_NAME,
+            "Answer the current follow-up only from facts in prior assistant answers. Use for "
+            "explanation, comparison, formatting, or arithmetic that needs no new data query.",
+            {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        )
 
     @staticmethod
     def reject_tool() -> ToolDefinition:

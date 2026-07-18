@@ -28,3 +28,16 @@ npm run dev
 
 生产部署时，推荐由反向代理把 `/api` 转发给 Nino Runtime；也可以在构建时设置
 `VITE_NINO_API_BASE_URL`。后端需要通过 `NINO_CORS_ORIGINS` 放行对应前端域名。
+
+## Docker Compose 部署
+
+在项目根目录导出模型 API Key 后，重新构建并启动全部服务：
+
+```bash
+export OPENAI_API_KEY='<your-key>'
+docker compose up -d --build
+```
+
+打开 `http://localhost:3000`。前端由 Nginx 提供静态文件，浏览器对同源 `/api` 和
+`/health` 的请求由 Nginx 反向代理到 `agent-runtime:8090`。可通过 `NINO_WEB_PORT`
+修改宿主机端口。

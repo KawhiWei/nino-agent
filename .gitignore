@@ -9,6 +9,7 @@ build/
 *.egg-info/
 .env
 nino-agent-storage/*.db
+nino-agent-storage/*.db.backup-*
 nino-agent-storage/*.db-shm
 nino-agent-storage/*.db-wal
 **/bin/

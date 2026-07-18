@@ -1,4 +1,16 @@
 services:
+  web:
+    build:
+      context: .
+      dockerfile: web/react/Dockerfile
+    container_name: nino-agent-web
+    ports:
+      - "${NINO_WEB_PORT:-3000}:80"
+    depends_on:
+      agent-runtime:
+        condition: service_healthy
+    restart: unless-stopped
+
   agent-runtime:
     build:
       context: .
@@ -29,7 +41,7 @@ services:
       NINO_LOOP_HARD_TIMEOUT_SECONDS: ${NINO_LOOP_HARD_TIMEOUT_SECONDS:-300}
       NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES: ${NINO_LOOP_HARD_MAX_CONSECUTIVE_FAILURES:-3}
       NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS: ${NINO_LOOP_HARD_MAX_NO_PROGRESS_STEPS:-3}
-      NINO_CORS_ORIGINS: ${NINO_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      NINO_CORS_ORIGINS: ${NINO_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173}
       NINO_SKILLS_PATH: /app/shared/skills
       NINO_AGENTS_PATH: /app/shared/agents
     ports:
