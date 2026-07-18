@@ -46,6 +46,30 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         },
+        "expected": { "$ref": "#/$defs/expected" },
+        "follow_ups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/followUp" },
+          "default": []
+        }
+      }
+    },
+    "followUp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "relationship", "prompt", "derived_from", "expected"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
+        "relationship": {
+          "enum": ["related-history", "related-new-data", "unrelated-new-data", "unrelated-out-of-scope"]
+        },
+        "prompt": { "type": "string", "minLength": 1 },
+        "derived_from": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "expected": { "$ref": "#/$defs/expected" }
       }
     },
@@ -73,6 +97,25 @@
           "items": { "type": "string", "minLength": 1 }, "default": []
         },
         "max_model_calls": { "type": "integer", "minimum": 0 },
+        "expected_outcome": {
+          "enum": ["normal", "clarification", "history_answer", "out_of_scope"]
+        },
+        "required_events": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }, "default": []
+        },
+        "forbidden_events": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }, "default": []
+        },
+        "required_model_phases": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }, "default": []
+        },
+        "forbidden_model_phases": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }, "default": []
+        },
         "answer_facts": {
           "type": "array",
           "items": {

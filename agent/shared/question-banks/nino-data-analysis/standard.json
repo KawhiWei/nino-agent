@@ -1,7 +1,7 @@
 {
   "$schema": "../../contracts/evaluation-suite.schema.json",
   "id": "nino-data.analysis.standard",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "skill_id": "nino-data.analysis",
   "description": "Compact standard suite covering policy, deterministic golden orders, and large-sample analysis without row-by-row evaluation.",
   "derived_from": [
@@ -58,7 +58,58 @@
         "required_tools": ["nino_data_get_order_detail"],
         "required_references": ["metric-definitions", "order-query-rules"],
         "answer_facts": [["225"], ["165"], ["0.00", "0 CNY", "退款为 0", "退款：0"], ["60"], ["CNY"]]
-      }
+      },
+      "follow_ups": [
+        {
+          "id": "history-reformat",
+          "relationship": "related-history",
+          "prompt": "只使用你上一轮已经确认的数据，把收入、成本和毛利整理成一行 Markdown 表格，不要重新查询。",
+          "derived_from": ["Planner history-answer control policy", "previous accepted answer for DEMO-202607-001"],
+          "expected": {
+            "status": "completed",
+            "skill_id": null,
+            "dispatch": false,
+            "forbidden_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
+            "expected_outcome": "history_answer",
+            "required_model_phases": ["planning", "history_reconciliation"],
+            "max_model_calls": 2,
+            "answer_facts": [["225"], ["165"], ["60"], ["收入"], ["成本"], ["毛利"]]
+          }
+        },
+        {
+          "id": "unrelated-new-order",
+          "relationship": "unrelated-new-data",
+          "prompt": "换一个没有上下文关系的新问题：查询订单 DEMO-202607-033，只给出收入、成本和毛利。",
+          "derived_from": ["conversation isolation policy", "database golden case DEMO-202607-033"],
+          "expected": {
+            "status": "completed",
+            "skill_id": "nino-data.analysis",
+            "dispatch": true,
+            "required_tools": ["nino_data_get_order_detail"],
+            "required_references": ["metric-definitions", "order-query-rules"],
+            "expected_outcome": "normal",
+            "forbidden_model_phases": ["history_reconciliation"],
+            "answer_facts": [["DEMO-202607-033"], ["1000", "1,000"], ["820"], ["180"]]
+          }
+        },
+        {
+          "id": "unrelated-out-of-scope",
+          "relationship": "unrelated-out-of-scope",
+          "prompt": "再问一个完全无关的问题：上海明天的天气怎么样？",
+          "derived_from": ["strict registered Skill scope policy", "conversation history must not broaden capabilities"],
+          "expected": {
+            "status": "completed",
+            "skill_id": null,
+            "dispatch": false,
+            "forbidden_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
+            "expected_outcome": "out_of_scope",
+            "required_events": ["policy_rejected"],
+            "forbidden_model_phases": ["planning", "history_reconciliation"],
+            "max_model_calls": 0,
+            "answer_facts": [["不在已注册 skill", "能力范围", "无法执行"]]
+          }
+        }
+      ]
     },
     {
       "id": "july-summary-report",
@@ -88,6 +139,51 @@
         "forbidden_tools": ["nino_data_get_order_detail", "nino_data_query_summary", "nino_data_find_anomalies"],
         "max_model_calls": 0,
         "answer_facts": [["无法", "不能", "不支持", "只读"]]
+      }
+    },
+    {
+      "id": "supplier-refund-recovery-031",
+      "category": "order-query",
+      "tags": ["order", "refund", "supplier-recovery", "golden", "standard"],
+      "prompt": "核对订单 DEMO-202607-031 的供应商退款回收效果，给出收入、供应商净成本、成功退款和毛利。",
+      "derived_from": ["metric-definitions.md", "order-query-rules.md", "database golden case DEMO-202607-031"],
+      "expected": {
+        "status": "completed",
+        "skill_id": "nino-data.analysis",
+        "dispatch": true,
+        "required_tools": ["nino_data_get_order_detail"],
+        "required_references": ["metric-definitions", "order-query-rules"],
+        "answer_facts": [["DEMO-202607-031"], ["1000", "1,000"], ["500"], ["400"], ["100"], ["CNY"]]
+      }
+    },
+    {
+      "id": "negative-margin-order-032",
+      "category": "order-query",
+      "tags": ["order", "refund", "negative-margin", "golden", "standard"],
+      "prompt": "分析订单 DEMO-202607-032 为什么亏损，列出收入、成本、成功退款和毛利，并给出计算过程。",
+      "derived_from": ["metric-definitions.md", "anomaly-rules.md", "database golden case DEMO-202607-032"],
+      "expected": {
+        "status": "completed",
+        "skill_id": "nino-data.analysis",
+        "dispatch": true,
+        "required_tools": ["nino_data_get_order_detail"],
+        "required_references": ["metric-definitions", "order-query-rules"],
+        "answer_facts": [["DEMO-202607-032"], ["500"], ["450"], ["-450"], ["CNY"]]
+      }
+    },
+    {
+      "id": "missing-order-detail",
+      "category": "order-query",
+      "tags": ["order", "not-found", "boundary", "standard"],
+      "prompt": "查询订单 DEMO-209912-999 的明细，并明确说明是否存在。",
+      "derived_from": ["order-query-rules.md", "nino_data_get_order_detail not-found contract"],
+      "expected": {
+        "status": "completed",
+        "skill_id": "nino-data.analysis",
+        "dispatch": true,
+        "required_tools": ["nino_data_get_order_detail"],
+        "required_references": ["order-query-rules"],
+        "answer_facts": [["DEMO-209912-999"], ["未找到", "不存在", "没有找到", "no order"]]
       }
     },
     {
