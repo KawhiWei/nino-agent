@@ -1,12 +1,12 @@
-# Nino Agent Local Storage
+# Nino Agent 本地存储
 
-The Python Agent Runtime stores local SQLite state in `nino-agent.db` by default.
+Python Agent Runtime 默认把本地 SQLite 状态保存到 `nino-agent.db`。
 
-The database contains conversations, messages, runs, replayable events, and compacted
-conversation context. SQLite database, WAL, and shared-memory files are intentionally ignored by
-Git. Back up or remove this directory only when the Agent Runtime is stopped.
+数据库包含 Conversation、Message、Run、可重放 Event、上下文摘要，以及持久化的
+TaskGraph/TaskNode/TaskGate/NodeAttempt。SQLite 数据库、WAL、共享内存文件和带时间戳的
+`*.db.backup-*` 备份会被 Git 忽略。只有在 Agent Runtime 停止后才能备份或删除这些文件。
 
-Committed `live-benchmark*.json` files are historical benchmark artifacts. Their recorded Tool names
-and Agent IDs describe the Runtime version that produced them and must not be rewritten to imitate a
-new architecture. Generate a new report with Runtime `0.14.0` when comparison against the Planner /
-generic Analyst / generic Verifier flow is required.
+已提交的 `live-benchmark*.json` 是历史基准产物，其中记录的 Tool 名称和 Agent ID 表示生成报告时的
+Runtime 版本，不能为了伪装成新架构而重写。需要比较当前 Planner、通用 Analyst、通用 Verifier、
+History Answer 或 Assurance repair 链路时，应使用当前 Runtime 重新生成一份带新输出文件名的报告，
+并保留原历史报告。

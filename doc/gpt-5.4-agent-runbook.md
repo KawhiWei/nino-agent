@@ -94,28 +94,53 @@ curl -s http://127.0.0.1:8090/api/v1/runs/{run_id}/task-graph
 验收重点不是只有最终文本，而是事件链中出现：
 
 ```text
-planning model_started (`nino.planner`)
--> candidate nino_runtime_submit_task_graph_node
--> graph_planned / graph_reconciled
--> agent_started (`nino.analyst`) + skill_selected
--> worker model_started
--> nino_data_* tool_started/tool_completed
--> agent_completed (`nino.analyst`)
--> agent_started (`nino.verifier`)
--> independent read-only Tool call + structured verdict
--> evidence and independent_verification Gates passed
--> reconciliation model_started (`nino.orchestrator`)
--> run_completed
+规划模型启动：planning model_started (`nino.planner`)
+-> 提交候选节点：nino_runtime_submit_task_graph_node
+-> 任务图已规划或已修订：graph_planned / graph_reconciled
+-> 分析节点启动并选定 Skill：agent_started (`nino.analyst`) + skill_selected
+-> Worker 模型启动：worker model_started
+-> 数据工具启动并完成：nino_data_* tool_started/tool_completed
+-> 分析节点完成：agent_completed (`nino.analyst`)
+-> 独立验证节点启动：agent_started (`nino.verifier`)
+-> 独立只读 Tool 调用和结构化裁决：independent read-only Tool call + structured verdict
+-> 证据与独立验证门禁通过：evidence and independent_verification Gates passed
+-> 总控无工具归并启动：reconciliation model_started (`nino.orchestrator`)
+-> 整个运行完成：run_completed
 ```
 
 `task-graph` 中不会出现 Planner Node；Planner proposal 只有被 Orchestrator 接受后才投影为 Specialist
 和 Verification Node。最终应看到 `orchestration/specialist/verification` 三类 Node 全部 completed。
-恢复或 reconcile 验收还应检查 Node metadata：相同 Fingerprint 才允许复用；repair Node 应记录
-`supersedes_node_id`，被影响且尚未完成的旧下游状态应为 `superseded`。
+恢复或 reconcile 验收还应检查 Node metadata：相同 Fingerprint 才允许复用；显式替换失败/blocked
+工作的 repair Node 应记录 `supersedes_node_id`，被影响且尚未完成的旧下游状态应为 `superseded`。
 
-同一会话继续追问“那退款占收入的比例是多少”，复用原 `conversation_id`，验证 SQLite 多轮上下文。
+如果 Specialist 已 Completed、但独立 Verification 失败，原 Specialist 的 status/result/gate 必须保持
+冻结。Planner 应创建新的独立只读 repair Node，不设置 `supersedes_node_id`，也不依赖原 Completed
+Node；事件中应出现新的 `graph_reconciled` 和后续验证链。
 
-## 5. 常见失败
+同一会话继续追问“为什么收入和毛利率排名不同”，复用原 `conversation_id`。如果问题只需要解释、
+比较、改写或计算先前已接受回答，Planner 可选择 `nino_runtime_answer_from_history`，随后应观察到：
+
+```text
+选择仅历史回答：nino_runtime_answer_from_history
+-> 无 Tool 历史归并：history_reconciliation model_started/completed
+-> 以历史回答完成：run_completed (outcome=history_answer)
+```
+
+该分支不应启动 Analyst/Verifier 或业务 MCP Tool。需要新数据的追问仍必须进入完整 Worker + Gate 链路。
+
+## 5. Docker Compose 全栈启动
+
+导出模型配置后，可一次启动 React Web、Runtime、.NET MCP 和 PostgreSQL：
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+入口：Web `http://127.0.0.1:3000`，Runtime `http://127.0.0.1:8090`，MCP `8091`，PostgreSQL
+`55432`。Web 由 Nginx 提供静态文件，并同源代理 `/api`、`/health` 和 SSE。
+
+## 6. 常见失败
 
 | 现象 | 检查项 |
 |---|---|

@@ -1,5 +1,7 @@
-# Node.js Implementations
+# Node.js 实现（预留）
 
-Reserved for a future Node.js Agent Runtime. It must consume the contracts and Skills under `agent/shared` and must not import Python runtime code.
+该目录为未来的 Node.js Agent Runtime 预留。实现必须加载 `agent/shared` 下的契约和 Skill，不能导入
+Python Runtime 源码。
 
-Target layers: `api/`, `runtime/`, `harness/`, `framework/`, and `infrastructure/`. Start from shared contract tests, not from a source-code port of Python.
+目标分层为 `api/`、`runtime/`、`harness/`、`framework/` 和 `infrastructure/`。实现应从共享契约测试
+开始，而不是逐行移植 Python 代码。

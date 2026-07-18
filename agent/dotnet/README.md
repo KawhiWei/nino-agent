@@ -1,6 +1,7 @@
-# .NET Implementations
+# .NET 实现（预留）
 
-Reserved for a future .NET Agent Runtime. It will consume the contracts under `agent/shared`.
-The independent .NET Nino Data MCP Server is located under `mcp/dotnet`.
+该目录为未来的 .NET Agent Runtime 预留，并将直接加载 `agent/shared` 下的共享契约。
+当前独立的 .NET Nino Data MCP Server 位于 `mcp/dotnet`，它不是 .NET Agent Runtime。
 
-Target layers: `Api`, `Runtime`, `Harness`, `Framework`, and `Infrastructure`. Skills, Agents, References, and JSON schemas remain in `agent/shared` and are loaded read-only.
+目标分层为 `Api`、`Runtime`、`Harness`、`Framework` 和 `Infrastructure`。Skill、Agent、Reference 和
+JSON Schema 继续保留在 `agent/shared`，由实现以只读方式加载。

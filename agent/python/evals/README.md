@@ -1,4 +1,4 @@
-# Live Agent Benchmark
+# 真实 Agent 基准测试（Live Agent Benchmark）
 
 该 Runner 读取 Skill 自己声明的共享标准题库，通过 Runtime REST API 调用真实模型，并使用可重放
 事件和数据库已知真值评分。Python 文件不内置业务题目，也不读取、保存或评估隐藏思维过程。

@@ -1,8 +1,8 @@
-# Nino Agent Clients
+# Nino Agent 客户端
 
 `web` 目录按客户端技术栈拆分实现，便于不同端共享 Nino Agent 的 REST + SSE 协议，同时保持各自独立构建。
 
-| Directory | Stack | Status |
+| 目录 | 技术栈 | 状态 |
 |---|---|---|
 | [`react`](./react) | React + TypeScript + Vite + Semi Design | 可运行 |
 

@@ -1,60 +1,57 @@
-# Shared Agent Contracts
+# 共享 Agent 契约
 
-`agent/shared` is the language-neutral source of truth used by every Agent implementation.
+`agent/shared` 是所有语言 Agent 实现共同使用的语言无关事实源。
 
 ```text
 shared/
-├── contracts/     # JSON Schema for machine validation
-├── skills/        # Capabilities, tool allowlists, references, and standard evaluation suites
-└── agents/        # Business-neutral Orchestrator, Planner, Analyst, Verifier, and role policies
+├── contracts/     # 用于机器校验的 JSON Schema
+├── skills/        # 能力、Tool 白名单、Reference 和标准评测套件
+└── agents/        # 业务中立的 Orchestrator、Planner、Analyst、Verifier 及角色策略
 ```
 
-Rules:
+规则：
 
-1. Shared files cannot import or reference Python, Node.js, or .NET implementation code.
-2. `skill.json.id` and `agent.json.id` are stable cross-language identities.
-3. `SKILL.md` and `AGENT.md` frontmatter own display `name` and `description`.
-4. Reference paths are relative to their Skill directory and must be containment-checked.
-5. Every language Runtime must validate the JSON contracts before exposing a Skill or Agent.
-6. Tool names refer to MCP capabilities; shared Skills never contain SQL, credentials, or transport URLs.
-7. Language implementations may optimize Harness/Runtime internals but must preserve shared IDs,
-   allowlist semantics, delegation depth, and externally documented events.
-8. The Planner reads capability metadata and proposes candidate Graph nodes only. The Orchestrator
-   alone validates, persists, schedules, reconciles, and completes accepted work.
-9. Generic Analyst and Verifier Agents load the selected Skill in a fresh context. Effective Tool
-   access is the intersection of discovered MCP tools, Skill allowlists, and Agent role policy.
-10. Agent and Skill `loop` values are policy ceilings. A Runtime combines every field with its hard
-    limit using `min`; business definitions may tighten but never widen execution budgets.
-11. `excluded_intent_keywords` are evaluated before positive `intent_keywords`. An unmatched request
-    must not fall back to a default Skill or reach the model.
-12. Each production Skill should declare versioned `evaluation_suites` stored under
-    `question-banks/<capability>/`. Every case records
-    `derived_from` provenance and may only reference Tools and References owned by that Skill.
-13. The standard business-neutral Agent set is `nino.orchestrator`, `nino.planner`, `nino.analyst`,
-    and `nino.verifier`. Compatible new read-only businesses normally add Skills and MCP servers,
-    not Agent manifests.
+1. 共享文件不能导入或引用 Python、Node.js 或 .NET 实现代码。
+2. `skill.json.id` 和 `agent.json.id` 是稳定的跨语言身份。
+3. `SKILL.md` 和 `AGENT.md` 的 frontmatter（头部元数据）负责展示名称和描述。
+4. Reference 路径相对于所属 Skill 目录，Runtime 必须检查目录边界。
+5. 每种语言的 Runtime 在暴露 Skill 或 Agent 前都必须校验 JSON 契约。
+6. Tool 名称指向 MCP 能力；共享 Skill 不得包含 SQL、凭据或传输地址。
+7. 各语言实现可以优化 Harness/Runtime 内部结构，但必须保持共享 ID、白名单语义、委派深度和对外事件。
+8. Orchestrator 从 Registry 构造候选能力后交给 Planner。Planner 只提出候选节点或受控决定；
+   Orchestrator 独占校验、持久化、调度、归并和完成权限。
+9. 通用 Analyst 和 Verifier 在新上下文中加载选定 Skill。有效 Tool 是 MCP 发现结果、Skill 白名单和
+   Agent 角色策略的交集。
+10. Agent 和 Skill 的 `loop` 值是策略上限。Runtime 对每个字段取最严格值；业务定义只能收紧预算。
+11. `excluded_intent_keywords` 先于正向 `intent_keywords` 计算；被明确排除的请求不得进入模型路由。
+12. 生产 Skill 应声明位于 `question-banks/<capability>/` 的版本化 `evaluation_suites`。每个案例必须记录
+    `derived_from` 来源，只能引用该 Skill 拥有的 Tool 和 Reference。
+13. 标准业务中立 Agent 是 `nino.orchestrator`、`nino.planner`、`nino.analyst` 和
+    `nino.verifier`。兼容的新只读业务通常增加 Skill 和 MCP Server，而不是增加 Agent manifest。
+14. `nino_runtime_answer_from_history` 仅在存在 Assistant 历史时提供，只能解释、比较、改写或计算先前
+    已接受回答；需要新事实时仍必须调用 Worker 和 Tool。
 
-Python loads this directory through `NINO_SKILLS_PATH` and `NINO_AGENTS_PATH`. Future Node.js and
-.NET implementations must load the same directory rather than copying its contents into their own
-projects.
+Python 通过 `NINO_SKILLS_PATH` 和 `NINO_AGENTS_PATH` 加载此目录。未来 Node.js 和 .NET 实现必须加载
+同一目录，不能把内容复制到各自项目中形成分叉。
 
-## Standard Agent Contract
+## 标准 Agent 契约
 
-| ID | Role | Shared policy |
+| ID | 角色 | 共享策略 |
 |---|---|---|
-| `nino.orchestrator` | sole control plane | No business Skill/Tool binding; owns accepted Graph execution and final reconciliation |
-| `nino.planner` | advisory planner | No business Skill/Tool binding; proposes candidate nodes only |
-| `nino.analyst` | generic worker | Accepts compatible `read-only` Skills; Tools come from the selected Skill policy |
-| `nino.verifier` | generic verification evaluator | Independently re-runs compatible `read-only` Skill evidence |
+| `nino.orchestrator` | 唯一控制面 | 不绑定业务 Skill/Tool；负责已接受 Graph 的执行和最终归并 |
+| `nino.planner` | 建议型规划器 | 不绑定业务 Skill/Tool；只提出候选节点或受控控制决定 |
+| `nino.analyst` | 通用工作节点 | 接受兼容的 `read-only` Skill；Tool 来自选定 Skill 策略 |
+| `nino.verifier` | 通用独立验证节点 | 使用兼容的只读 Skill 独立重跑最小证据 |
 
-An empty `allowed_skills` on the generic Analyst/Verifier does not mean unrestricted access and does
-not mean no capability. With `tool_policy=selected-skill-only`, the Runtime first checks
-`accepted_risk_levels/accepted_capabilities`, then exposes only tools present in both MCP discovery and
-the selected `Skill.allowed_tools`. Explicit allowlists remain available for future narrowly bound
-roles.
+通用 Analyst/Verifier 的 `allowed_skills` 为空不代表无限权限，也不代表没有能力。在
+`tool_policy=selected-skill-only` 下，Runtime 先校验 `accepted_risk_levels/accepted_capabilities`，再只
+暴露同时存在于 MCP 发现结果和 `Skill.allowed_tools` 中的 Tool。显式白名单仍可用于未来的窄角色。
 
-Accepted TaskGraph nodes carry a canonical `node_fingerprint`. A Runtime may reuse a completed node
-only when its logical ID and fingerprint both match. A repair node uses `supersedes_node_id` to replace
-failed or blocked work from an earlier revision; unfinished affected descendants become
-`superseded`, while completed history remains immutable. This lineage is part of the cross-language
-Harness behavior even though exact Ready-node resume is not currently required.
+已接受的 TaskGraph Node 携带规范化 `node_fingerprint`。只有 logical ID 和 Fingerprint 都一致时，
+Runtime 才能复用 Completed Node。同一 logical ID 的 Fingerprint 变化会创建新物理版本，同时冻结旧
+Completed 的 status/result/gate。显式 repair 的 `supersedes_node_id` 只能替换早期失败或 blocked
+工作；受影响且未完成的下游进入 `superseded`，Completed 历史保持不可变。
+
+如果 Specialist 已 Completed 但 Assurance Gate 失败，Planner 必须创建独立只读 repair Node，不设置
+`supersedes_node_id`，也不依赖原 Completed Node。该 lineage（演进关系）属于跨语言 Harness 行为，
+但当前仍不承诺从任意 Ready Node 精确恢复。
