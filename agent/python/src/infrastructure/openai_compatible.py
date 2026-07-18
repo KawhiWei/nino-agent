@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import json
-from typing import Any, Sequence
+from typing import Any, Awaitable, Callable, Sequence
 
 import httpx
 
 from framework import Message, ModelTurn, ToolCall, ToolDefinition
+
+
+TextDeltaHandler = Callable[[str], Awaitable[Any] | Any]
 
 
 class OpenAICompatibleChatModel:
@@ -42,10 +46,19 @@ class OpenAICompatibleChatModel:
     async def complete(
         self, messages: Sequence[Message], tools: Sequence[ToolDefinition]
     ) -> ModelTurn:
+        return await self.stream_complete(messages, tools)
+
+    async def stream_complete(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        on_text_delta: TextDeltaHandler | None = None,
+    ) -> ModelTurn:
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": [self._message_payload(message) for message in messages],
             "temperature": 0,
+            "stream": True,
         }
         if self._thinking_mode:
             payload["thinking"] = {"type": self._thinking_mode}
@@ -66,28 +79,107 @@ class OpenAICompatibleChatModel:
             payload["tool_choice"] = "auto"
 
         try:
-            response = await self._client.post(
+            async with self._client.stream(
+                "POST",
                 self._endpoint,
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 json=payload,
-            )
-            response.raise_for_status()
+            ) as response:
+                response.raise_for_status()
+                if "text/event-stream" in response.headers.get("content-type", ""):
+                    return await self._stream_turn(response, on_text_delta)
+                body = json.loads(await response.aread())
         except httpx.HTTPError as exc:
             status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             detail = f" HTTP {status}" if status else ""
             raise OSError(f"Model request failed.{detail}") from exc
-        body = response.json()
+        except json.JSONDecodeError as exc:
+            raise OSError("Model response is neither valid SSE nor JSON.") from exc
+        return self._turn_from_body(body)
+
+    async def _stream_turn(
+        self,
+        response: httpx.Response,
+        on_text_delta: TextDeltaHandler | None,
+    ) -> ModelTurn:
+        text_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        calls: dict[int, dict[str, str]] = {}
+        try:
+            async for line in response.aiter_lines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith(":") or not stripped.startswith("data:"):
+                    continue
+                data = stripped[5:].strip()
+                if data == "[DONE]":
+                    break
+                chunk = json.loads(data)
+                if chunk.get("error"):
+                    raise OSError("Model stream returned an error payload.")
+                choices = chunk.get("choices") or ()
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or choices[0].get("message") or {}
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    text_parts.append(content)
+                    if on_text_delta is not None:
+                        result = on_text_delta(content)
+                        if inspect.isawaitable(result):
+                            await result
+                reasoning = delta.get("reasoning_content")
+                if isinstance(reasoning, str) and reasoning:
+                    reasoning_parts.append(reasoning)
+                for item in delta.get("tool_calls") or ():
+                    index = int(item.get("index", 0))
+                    state = calls.setdefault(
+                        index, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if item.get("id"):
+                        state["id"] = str(item["id"])
+                    function = item.get("function") or {}
+                    if function.get("name"):
+                        state["name"] += str(function["name"])
+                    if function.get("arguments"):
+                        state["arguments"] += str(function["arguments"])
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise OSError("Model returned an invalid SSE stream.") from exc
+
+        tool_calls = tuple(
+            self._stream_tool_call(index, value)
+            for index, value in sorted(calls.items())
+        )
+        return ModelTurn(
+            text="".join(text_parts),
+            tool_calls=tool_calls,
+            reasoning_content="".join(reasoning_parts) or None,
+        )
+
+    @classmethod
+    def _turn_from_body(cls, body: Any) -> ModelTurn:
         try:
             message = body["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise OSError("Model response does not contain choices[0].message.") from exc
 
-        calls = tuple(self._tool_call(item) for item in message.get("tool_calls", ()))
+        calls = tuple(cls._tool_call(item) for item in message.get("tool_calls", ()))
         return ModelTurn(
             text=message.get("content") or "",
             tool_calls=calls,
             reasoning_content=message.get("reasoning_content") or None,
         )
+
+    @staticmethod
+    def _stream_tool_call(index: int, payload: dict[str, str]) -> ToolCall:
+        try:
+            arguments = json.loads(payload["arguments"] or "{}")
+            if not payload["name"] or not isinstance(arguments, dict):
+                raise ValueError("Incomplete streamed Tool call.")
+            return ToolCall(
+                payload["id"] or f"call-{index}", payload["name"], arguments
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise OSError("Model returned an invalid streamed Tool call.") from exc
 
     @staticmethod
     def _message_payload(message: Message) -> dict[str, Any]:

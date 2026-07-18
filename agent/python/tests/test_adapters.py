@@ -11,6 +11,46 @@ from framework import Message, ToolCall, ToolDefinition
 
 
 class OpenAICompatibleChatModelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_streams_text_and_fragmented_tool_calls(self) -> None:
+        requests: list[dict] = []
+
+        async def handle(request: httpx.Request) -> httpx.Response:
+            requests.append(json.loads(request.content))
+            events = "\n".join((
+                'data: {"choices":[{"delta":{"reasoning_content":"check "}}]}',
+                'data: {"choices":[{"delta":{"content":"订单",'
+                '"tool_calls":[{"index":0,"id":"call-1","function":'
+                '{"name":"order","arguments":"{\\\"id\\\":"}}]}}]}',
+                'data: {"choices":[{"delta":{"content":"结果",'
+                '"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}',
+                "data: [DONE]",
+                "",
+            ))
+            return httpx.Response(
+                200, content=events,
+                headers={"content-type": "text/event-stream"},
+            )
+
+        deltas: list[str] = []
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        model = OpenAICompatibleChatModel(
+            model="demo-model", api_key="test-key",
+            base_url="https://model.test/v1", client=client,
+        )
+        result = await model.stream_complete(
+            (Message(role="user", content="查询"),),
+            (ToolDefinition("order", "Get order", {"type": "object"}),),
+            on_text_delta=deltas.append,
+        )
+
+        self.assertTrue(requests[0]["stream"])
+        self.assertEqual(["订单", "结果"], deltas)
+        self.assertEqual("订单结果", result.text)
+        self.assertEqual("check ", result.reasoning_content)
+        self.assertEqual("order", result.tool_calls[0].name)
+        self.assertEqual({"id": 1}, result.tool_calls[0].arguments)
+        await client.aclose()
+
     async def test_round_trips_deepseek_reasoning_content_for_tool_calls(self) -> None:
         requests: list[dict] = []
 
@@ -57,6 +97,7 @@ class OpenAICompatibleChatModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("final answer", second.text)
         self.assertEqual({"type": "enabled"}, requests[0]["thinking"])
         self.assertEqual("high", requests[0]["reasoning_effort"])
+        self.assertTrue(requests[0]["stream"])
         self.assertEqual(
             "I need the order tool.", requests[1]["messages"][1]["reasoning_content"]
         )

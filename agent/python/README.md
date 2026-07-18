@@ -197,7 +197,7 @@ Task-level Harness architecture, execution semantics, recovery boundaries, and G
 | `be4427b` | Task-level Harness kernel | 引入 TaskGraph/Node/Gate/Attempt、DAG 调度、独立验证、恢复复用、输入绑定和 Acceptance Contract |
 | `f13ed93` | Real data analysis and fixed evaluation | 完善 PostgreSQL 12.18 数据集、标准题库、真实分析链路和小规模 Eval |
 | `facbc9e` / `0.14.0` | Planner and generic Agent separation | 拆出 `nino.planner`，将 Analyst/Verifier 去业务化，并保持 Orchestrator 为唯一控制面 |
-| `0.15.0 current design` | Fingerprint-safe Graph reconciliation | 严格 Completed 复用、revision lineage、显式 supersedes 和 Pending 后缀失效 |
+| `0.16.0 current design` | Streaming answer delivery | Native 模型流式聚合，并通过 Run SSE 暴露最终 `answer_delta`，内部 Agent 输出保持隔离 |
 
 这不是按提交消息推测的路线图；完整设计文档同时使用对应提交的代码 diff 与当前代码交叉验证。
 
@@ -224,6 +224,10 @@ Stream events:
 ```bash
 curl -N http://127.0.0.1:8090/api/v1/runs/{run_id}/events/stream
 ```
+
+For the final user-facing answer, append each `answer_delta.data.delta` in event order. Internal
+Planner, Analyst, and Verifier model tokens are intentionally not exposed. The terminal Run remains
+the authoritative complete answer and supports reconnect/replay through `Last-Event-ID`.
 
 Read run state or reconnect from an event sequence:
 
@@ -438,7 +442,7 @@ it is not accurate to promise that every unmatched request is rejected before an
 
 ## Tests
 
-The current `0.15.0` code passes the complete Python unit suite. Run it after implementation changes:
+The current `0.16.0` code passes the complete Python unit suite. Run it after implementation changes:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

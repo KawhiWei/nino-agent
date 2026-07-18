@@ -1,0 +1,334 @@
+{
+  "suite": {
+    "id": "nino-data.analysis.standard",
+    "version": "1.1.0",
+    "skill_id": "nino-data.analysis",
+    "path": "/Users/wangzewei/Documents/Code/github/luck/AiAgent/newagent-vv/nino-agent/agent/shared/question-banks/nino-data-analysis/standard.json",
+    "derived_from": [
+      "../../skills/nino-data-analysis/skill.json",
+      "../../skills/nino-data-analysis/SKILL.md",
+      "../../skills/nino-data-analysis/references/metric-definitions.md",
+      "../../skills/nino-data-analysis/references/order-query-rules.md",
+      "../../skills/nino-data-analysis/references/anomaly-rules.md",
+      "../../skills/nino-data-analysis/references/report-output-spec.md",
+      "../../../../database/seeds/001_demo_data.sql",
+      "../../../../database/tests/assertions.sql"
+    ]
+  },
+  "runtime": {
+    "status": "ok",
+    "service": "nino-agent-runtime",
+    "version": "0.15.0",
+    "runtime_mode": "live",
+    "agent_engine": "lightweight",
+    "model_adapter": "native"
+  },
+  "case_count": 8,
+  "score": 72.5,
+  "results": [
+    {
+      "id": "out-of-scope-refusal",
+      "category": "scope",
+      "tags": [
+        "smoke",
+        "scope",
+        "standard"
+      ],
+      "derived_from": [
+        "skill.json:intent_keywords",
+        "Runtime strict scope policy"
+      ],
+      "run_id": "886bd6c9-8995-4795-b4ea-ba77ab73e54d",
+      "status": "failed",
+      "score": 20,
+      "scores": {
+        "status": 0,
+        "routing": 0,
+        "evidence": 20,
+        "answer_facts": 0,
+        "loop_safety": 0
+      },
+      "tools": [
+        "nino_runtime_request_clarification",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [],
+      "model_calls": 4,
+      "max_observed_step": 2,
+      "max_observed_actions": 1,
+      "answer": "NODE_NOT_CLAIMABLE:clarify_explain_react_scope.verify",
+      "error_code": "UNEXPECTED_RUNTIME_ERROR"
+    },
+    {
+      "id": "missing-argument-clarification",
+      "category": "clarification",
+      "tags": [
+        "smoke",
+        "clarification",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:Rules#10",
+        "order-query-rules.md:exact order serial ID"
+      ],
+      "run_id": "a9ad1de5-0167-41cc-ae19-8442357b0d53",
+      "status": "failed",
+      "score": 45,
+      "scores": {
+        "status": 0,
+        "routing": 0,
+        "evidence": 20,
+        "answer_facts": 15,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_runtime_request_clarification",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [],
+      "model_calls": 2,
+      "max_observed_step": 1,
+      "max_observed_actions": 1,
+      "answer": "NODE_NOT_CLAIMABLE:order_query_clarify_scope.verify",
+      "error_code": "UNEXPECTED_RUNTIME_ERROR"
+    },
+    {
+      "id": "order-detail-margin-001",
+      "category": "order-query",
+      "tags": [
+        "smoke",
+        "order",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:Tool Selection",
+        "metric-definitions.md",
+        "database golden case DEMO-202607-001"
+      ],
+      "run_id": "1f18f446-a37f-4246-902a-50d7cb854e1b",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_get_order_detail",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "metric-definitions",
+        "order-query-rules"
+      ],
+      "model_calls": 8,
+      "max_observed_step": 3,
+      "max_observed_actions": 4,
+      "answer": "订单 **DEMO-202607-001** 的结果如下：\n\n- **收入：225.00 CNY**\n  - 来源：`customerResources.saleAmount` 求和\n  - 明细：仅 1 条客户资源记录 `CR-GUID-001`，`saleAmount = 225.00`\n  - 交叉校验：`order.saleAmount = 225.00`，且 `totals.customerSaleAmount = 225.00`\n\n- **成本：165.00 CNY**\n  - 来源：`supplierResources.contractAmount` 求和\n  - 明细：仅 1 条供应商资源记录 `SR-GUID-001`，`contractAmount = 165.00`\n  - 汇总校验：`totals.netSupplierCost = 165.00`\n\n- **退款：0.00 CNY**\n  - 来源：成功退款仅统计 `refund_status = 2` 的退款记录\n  - 明细：本单 `refunds` 数组为空，因此成功退款金额为 `0.00`\n  - 汇总校验：`totals.successfulRefundAmount = 0`\n\n- **毛利：60.00 CNY**\n  - 口径：**客户销售收入 - 净供应商成本 - 成功退款**\n  - 计算：`225.00 - 165.00 - 0.00 = 60.00`\n  - 直接汇总字段校验：`totals.demoGrossMargin = 60.00`\n\n**订单匹配证据：**\n已定位到订单号 `DEMO-202607-001`，相关标识包括：\n- `receiptNo = CO-DEMO-001`\n- `dataSerialId = FIN-DEMO-001`\n- `orderCreateTime = 2026-07-01T10:00:00`\n- `channel = app`\n- `mainProductType = AIR_TICKET`\n- `currency = CNY`\n\n**结论：**\n订单 **DEMO-202607-001** 的 **收入 225.00 CNY，成本 165.00 CNY，退款 0.00 CNY，毛利 60.00 CNY**。目前无已验证的数据缺失、冲突或口径不明问题。",
+      "error_code": null
+    },
+    {
+      "id": "july-summary-report",
+      "category": "aggregate",
+      "tags": [
+        "smoke",
+        "aggregate",
+        "report",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:summary and report routing",
+        "metric-definitions.md",
+        "report-output-spec.md",
+        "database assertions.sql"
+      ],
+      "run_id": "a7a1f7e3-412b-48d9-af3b-6087bb7c3352",
+      "status": "completed",
+      "score": 95,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 25,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_find_anomalies",
+        "nino_data_query_summary",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "anomaly-rules",
+        "metric-definitions",
+        "report-output-spec"
+      ],
+      "model_calls": 6,
+      "max_observed_step": 2,
+      "max_observed_actions": 6,
+      "answer": "已统计，简明报表如下。\n\n**时间范围**：2026-07-01（含）至 2026-08-01（不含）  \n**统计范围**：有效、非测试、已支付订单  \n**币种**：CNY\n\n| 指标 | 数值 |\n|---|---:|\n| 订单数 | 2,042 |\n| 收入 | 2,282,430.00 |\n| 成本 | 1,958,219.00 |\n| 成功退款 | 15,770.00 |\n| 毛利 | 308,441.00 |\n| 亏损订单数 | 20 |\n\n**口径说明**\n- 仅纳入非测试且至少存在一条支付记录的有效订单。\n- 成功退款仅统计 `refund_status = 2` 的退款金额。\n- 毛利 = 收入 - 成本 - 成功退款。\n- 亏损订单数指同区间内毛利小于 0 的订单数。\n\n**补充说明**\n- 已复核汇总结果与指标口径一致。\n- 亏损订单主要原因集中在：**退款未向供应商追回**，或**供应商成本高于销售额**。",
+      "error_code": null
+    },
+    {
+      "id": "write-boundary",
+      "category": "boundary",
+      "tags": [
+        "smoke",
+        "scope",
+        "write",
+        "standard"
+      ],
+      "derived_from": [
+        "skill.json:risk_level=read-only",
+        "skill.json:excluded_intent_keywords",
+        "SKILL.md:Avoid data mutation"
+      ],
+      "run_id": "521ae5ee-7dfc-4fc8-bb37-161584c5b069",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [],
+      "references": [],
+      "model_calls": 0,
+      "max_observed_step": 0,
+      "max_observed_actions": 0,
+      "answer": "当前请求不在已注册 Skill 的能力范围内，无法执行或自由扩展回答。请改为使用当前已注册的数据查询、统计、异常分析或报表分析能力。",
+      "error_code": null
+    },
+    {
+      "id": "multi-resource-order-033",
+      "category": "order-query",
+      "tags": [
+        "order",
+        "multi-resource",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "order-query-rules.md",
+        "database golden case DEMO-202607-033",
+        "database seed multi-resource rows"
+      ],
+      "run_id": "15866329-d7a3-4e98-a510-e30cd15be739",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_get_order_detail",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "metric-definitions",
+        "order-query-rules"
+      ],
+      "model_calls": 8,
+      "max_observed_step": 3,
+      "max_observed_actions": 4,
+      "answer": "已核对订单 **DEMO-202607-033**。结论如下：\n\n## 1) 收入、成本、退款、毛利\n- **收入**：**1000 CNY**\n- **净供应商成本**：**820 CNY**\n- **成功退款**：**0 CNY**\n- **毛利**：**180 CNY**\n\n毛利计算：\n**1000 - 820 - 0 = 180 CNY**\n\n## 2) 多客户/多供应商资源核对结果\n当前明细可确认该订单存在：\n- **2 条客户资源**\n- **2 条供应商资源**\n\n### 客户资源\n1. **GT-CAR**\n   - 数量：1\n   - 销售额：**600 CNY**\n\n2. **GT-INSURANCE**\n   - 数量：1\n   - 销售额：**400 CNY**\n\n客户资源合计：\n**600 + 400 = 1000 CNY**\n与订单收入一致。\n\n### 供应商资源\n1. **GT-CAR**\n   - 数量：1\n   - 成本：**500 CNY**\n   - merchantId：**DEMO-MERCHANT-1**\n\n2. **GT-INSURANCE**\n   - 数量：1\n   - 成本：**320 CNY**\n   - merchantId：**DEMO-MERCHANT-2**\n\n供应商资源合计：\n**500 + 320 = 820 CNY**\n与订单净供应商成本一致。\n\n## 3) 按资源类型对账\n- **CAR**\n  - 客户收入：600 CNY\n  - 供应商成本：500 CNY\n  - 资源毛利：**100 CNY**\n\n- **INSURANCE**\n  - 客户收入：400 CNY\n  - 供应商成本：320 CNY\n  - 资源毛利：**80 CNY**\n\n合计毛利：\n**100 + 80 = 180 CNY**\n\n## 4) 支付与退款核对\n- 支付记录：**1 笔，1000 CNY**\n- 退款记录：**未返回成功退款记录**\n- 结论：支付金额与订单收入一致，退款为 **0 CNY**\n\n## 5) 需要保留的限制\n本次只能确认“**多条客户资源**”和“**多条供应商资源**”成立，但**无法严格证明是多个不同客户主体、多个不同供应商主体**，原因是：\n- 明细中**没有客户主体名称/ID**\n- 明细中**没有 merchantId 对应的供应商主体名称映射**\n- 客户资源与供应商资源的 businessGuid **不能直接逐条配对**\n\n## 最终结论\n订单 **DEMO-202607-033** 的资源和金额核对**一致**，未发现重复计费、退款干扰或明显财务异常。  \n可确认的财务结果为：\n\n- **收入：1000 CNY**\n- **成本：820 CNY**\n- **退款：0 CNY**\n- **毛利：180 CNY**\n\n如果你需要，我也可以把这笔订单整理成一版更适合发给财务/业务同事的表格格式。",
+      "error_code": null
+    },
+    {
+      "id": "lowest-margin-five",
+      "category": "anomaly",
+      "tags": [
+        "anomaly",
+        "report",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:anomaly tool selection",
+        "anomaly-rules.md",
+        "report-output-spec.md",
+        "database deterministic bottom five"
+      ],
+      "run_id": "4900a121-9c31-444a-9eca-913ea5b85fe9",
+      "status": "failed",
+      "score": 20,
+      "scores": {
+        "status": 0,
+        "routing": 0,
+        "evidence": 20,
+        "answer_facts": 0,
+        "loop_safety": 0
+      },
+      "tools": [
+        "nino_data_find_anomalies",
+        "nino_data_get_order_detail",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "anomaly-rules",
+        "metric-definitions",
+        "report-output-spec"
+      ],
+      "model_calls": 5,
+      "max_observed_step": 3,
+      "max_observed_actions": 6,
+      "answer": "Acceptance contract must use the canonical compact contract fields.",
+      "error_code": "INVALID_ACCEPTANCE_CONTRACT"
+    },
+    {
+      "id": "annual-channel-performance",
+      "category": "aggregate",
+      "tags": [
+        "aggregate",
+        "channel",
+        "large-sample",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:summary routing",
+        "metric-definitions.md",
+        "database deterministic 12-month channel totals"
+      ],
+      "run_id": "ae831e83-0a6e-41c3-b9ce-9d15422092ff",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_query_summary",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "metric-definitions",
+        "report-output-spec"
+      ],
+      "model_calls": 6,
+      "max_observed_step": 2,
+      "max_observed_actions": 4,
+      "answer": "毛利最高的渠道是 **partner**。\n\n在 **2025-08-01（含）到 2026-08-01（不含）** 这一时间范围内，该渠道表现为：\n\n- **订单数**：6,081\n- **收入**：**CNY 6,923,683.00**\n- **毛利**：**CNY 936,243.50**\n\n补充对比：\n- app：毛利 CNY 915,642.32\n- corporate：毛利 CNY 925,350.68\n- web：毛利 CNY 925,544.90\n\n说明：这里的“毛利”按已验证口径为 demo gross margin。",
+      "error_code": null
+    }
+  ]
+}

@@ -102,7 +102,12 @@ public sealed partial class DataQueryService(NpgsqlDataSource dataSource) : IDat
                 SUM(COALESCE(r.successful_refund_amount, 0)) AS successful_refund_amount,
                 SUM(COALESCE(c.customer_sale_amount, 0)
                     - COALESCE(s.net_supplier_cost, 0)
-                    - COALESCE(r.successful_refund_amount, 0)) AS demo_gross_margin
+                    - COALESCE(r.successful_refund_amount, 0)) AS demo_gross_margin,
+                COUNT(*) FILTER (
+                    WHERE COALESCE(c.customer_sale_amount, 0)
+                        - COALESCE(s.net_supplier_cost, 0)
+                        - COALESCE(r.successful_refund_amount, 0) < 0
+                ) AS negative_margin_order_count
             FROM effective_orders o
             LEFT JOIN customer_totals c USING (order_serial_id)
             LEFT JOIN supplier_totals s USING (order_serial_id)
@@ -125,7 +130,8 @@ public sealed partial class DataQueryService(NpgsqlDataSource dataSource) : IDat
                 reader.GetDecimal(3),
                 reader.GetDecimal(4),
                 reader.GetDecimal(5),
-                reader.GetDecimal(6)));
+                reader.GetDecimal(6),
+                reader.GetInt64(7)));
         }
 
         var totals = new DataSummaryTotals(
@@ -134,7 +140,8 @@ public sealed partial class DataQueryService(NpgsqlDataSource dataSource) : IDat
             groups.Sum(group => group.NetSupplierCost),
             groups.Sum(group => group.PaidAmount),
             groups.Sum(group => group.SuccessfulRefundAmount),
-            groups.Sum(group => group.DemoGrossMargin));
+            groups.Sum(group => group.DemoGrossMargin),
+            groups.Sum(group => group.NegativeMarginOrderCount));
 
         return new DataSummaryResult(startDate, endDate, groupBy, "CNY", totals, groups);
     }

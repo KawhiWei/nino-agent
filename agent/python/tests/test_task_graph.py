@@ -475,6 +475,54 @@ class RepositoryConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("failed", gate.status.value)
             self.assertEqual((), gate.evidence)
 
+    async def test_clarification_control_evidence_completes_node(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repository = SqliteAgentRepository(Path(root) / "agent.db")
+            now = utc_now()
+            conversation = Conversation("conversation", None, now, now)
+            run = AgentRun("run", conversation.id)
+            message = ConversationMessage("message", conversation.id, "user", "查询订单", run.id, now)
+            await repository.create_conversation(conversation)
+            await repository.create_run_with_message(run, message)
+            controller = TaskGraphController(repository, "runtime")
+            await controller.ensure(run, message.content)
+            await controller.start(run, message.content)
+            await controller.record_event(run, AgentEvent(run.id, 1, "graph_planned", {
+                "revision": 1,
+                "nodes": [{
+                    "node_id": "clarify", "kind": "specialist",
+                    "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                    "task": "Ask for order id", "depends_on": [],
+                    "node_fingerprint": "clarify-v1",
+                }],
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 2, "agent_started", {
+                "child_run_id": "child", "plan_node_id": "clarify",
+                "agent_id": "nino.analyst", "skill_id": "nino-data.analysis",
+                "task": "Ask for order id", "depends_on": [],
+                "node_kind": "specialist", "node_fingerprint": "clarify-v1",
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 3, "tool_completed", {
+                "child_run_id": "child", "tool": "nino_runtime_request_clarification",
+                "call_id": "clarification", "is_error": False,
+            }))
+            await controller.record_event(run, AgentEvent(run.id, 4, "agent_completed", {
+                "child_run_id": "child", "plan_node_id": "clarify",
+                "status": "completed", "outcome": "clarification",
+                "result_summary": "请提供订单号", "node_result": {},
+            }))
+
+            snapshot = await repository.get_task_graph(run.id)
+            node = next(
+                item for item in snapshot.nodes
+                if item.metadata.get("logical_node_id") == "clarify"
+            )
+            gate = next(item for item in snapshot.gates if item.node_id == node.id)
+            self.assertEqual("completed", node.status.value)
+            self.assertIsNone(node.error_code)
+            self.assertEqual("passed", gate.status.value)
+            self.assertEqual(("clarification_requested",), gate.evidence)
+
 
 if __name__ == "__main__":
     unittest.main()

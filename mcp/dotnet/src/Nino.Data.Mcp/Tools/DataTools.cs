@@ -25,7 +25,7 @@ public sealed class DataTools(IDataQueryService queries)
     }
 
     [McpServerTool(Name = "nino_data_query_summary", ReadOnly = true, Idempotent = true)]
-    [Description("Summarizes paid, non-test demo orders for a half-open date range. Returns deterministic grand totals plus groups by main_product_type, channel, or day. Amounts are CNY in the demo dataset; use totals instead of adding groups in the model.")]
+    [Description("Summarizes paid, non-test demo orders for a half-open date range. Returns deterministic grand totals, including negativeMarginOrderCount, plus groups by main_product_type, channel, or day. Amounts are CNY in the demo dataset; use totals instead of adding groups or counting paginated anomaly rows in the model.")]
     public async Task<ToolEnvelope<DataSummaryResult>> QuerySummaryAsync(
         [Description("Inclusive start date in YYYY-MM-DD format.")] DateOnly startDate,
         [Description("Exclusive end date in YYYY-MM-DD format.")] DateOnly endDate,

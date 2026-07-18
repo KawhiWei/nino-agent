@@ -15,6 +15,8 @@ class EvaluationSuiteTests(unittest.TestCase):
         self.assertEqual(5, sum("smoke" in case.tags for case in suite.cases))
         self.assertEqual(len(suite.cases), len({case.id for case in suite.cases}))
         self.assertTrue(all(case.derived_from for case in suite.cases))
+        july = next(case for case in suite.cases if case.id == "july-summary-report")
+        self.assertEqual(("nino_data_query_summary",), july.required_tools)
 
 
 if __name__ == "__main__":

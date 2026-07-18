@@ -42,12 +42,14 @@ public sealed class DataQueryServiceTests
         Assert.Equal(2282430, result.Totals.PaidAmount);
         Assert.Equal(15770, result.Totals.SuccessfulRefundAmount);
         Assert.Equal(308441, result.Totals.DemoGrossMargin);
+        Assert.Equal(24, result.Totals.NegativeMarginOrderCount);
         Assert.Equal(2042, result.Groups.Sum(group => group.OrderCount));
         Assert.Equal(2282430, result.Groups.Sum(group => group.CustomerSaleAmount));
         Assert.Equal(1958219, result.Groups.Sum(group => group.NetSupplierCost));
         Assert.Equal(2282430, result.Groups.Sum(group => group.PaidAmount));
         Assert.Equal(15770, result.Groups.Sum(group => group.SuccessfulRefundAmount));
         Assert.Equal(308441, result.Groups.Sum(group => group.DemoGrossMargin));
+        Assert.Equal(24, result.Groups.Sum(group => group.NegativeMarginOrderCount));
     }
 
     [Fact]

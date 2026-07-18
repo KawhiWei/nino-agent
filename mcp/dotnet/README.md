@@ -8,7 +8,7 @@ MCP Streamable HTTP at `POST /mcp`; `--stdio` is retained for local MCP clients.
 | Tool | Purpose |
 |---|---|
 | `nino_data_get_order_detail` | Load an order and its customer resources, supplier resources, payments, refunds, and totals. |
-| `nino_data_query_summary` | Summarize paid, non-test orders by product, channel, or day. |
+| `nino_data_query_summary` | Summarize paid, non-test orders by product, channel, or day, including the exact negative-margin order count. |
 | `nino_data_find_anomalies` | Return deterministic negative-margin anomalies. |
 
 There is intentionally no arbitrary SQL tool. All inputs are validated and every database

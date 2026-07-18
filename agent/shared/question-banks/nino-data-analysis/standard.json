@@ -1,7 +1,7 @@
 {
   "$schema": "../../contracts/evaluation-suite.schema.json",
   "id": "nino-data.analysis.standard",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "skill_id": "nino-data.analysis",
   "description": "Compact standard suite covering policy, deterministic golden orders, and large-sample analysis without row-by-row evaluation.",
   "derived_from": [
@@ -70,7 +70,7 @@
         "status": "completed",
         "skill_id": "nino-data.analysis",
         "dispatch": true,
-        "required_tools": ["nino_data_query_summary", "nino_data_find_anomalies"],
+        "required_tools": ["nino_data_query_summary"],
         "required_references": ["metric-definitions", "report-output-spec"],
         "answer_facts": [["2042", "2,042"], ["2282430", "2,282,430"], ["1958219", "1,958,219"], ["15770", "15,770"], ["308441", "308,441"], ["24"]]
       }

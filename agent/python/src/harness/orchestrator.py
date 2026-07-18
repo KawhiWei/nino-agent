@@ -286,6 +286,25 @@ class OrchestratorHarness:
                     await checkpoint("after_observation")
                     if violation is not None:
                         return await fail(violation)
+                clarification = next(
+                    (
+                        outcome for outcome in outcomes
+                        if outcome.success and outcome.payload.get("kind") == "clarification"
+                    ),
+                    None,
+                )
+                if clarification is not None:
+                    question = str(clarification.payload.get("summary", "")).strip()
+                    loop.stop(LoopStatus.COMPLETED, LoopStopReason.FINAL_ANSWER)
+                    await checkpoint("terminal")
+                    await emit(
+                        "run_completed", step=step, outcome="clarification",
+                        agent_id=self._primary.id,
+                    )
+                    return RunResult(
+                        run_id, RunStatus.COMPLETED, question,
+                        clarification.plan.skill_id, step, tuple(events),
+                    )
                 if outcomes and all(outcome.success for outcome in outcomes):
                     violation = loop.begin_step()
                     if violation is not None:
@@ -309,11 +328,36 @@ class OrchestratorHarness:
                             ),
                         ),
                     )
+                    answer_delta_buffer = ""
+
+                    async def answer_delta(delta: str) -> None:
+                        nonlocal answer_delta_buffer
+                        answer_delta_buffer += delta
+                        if len(answer_delta_buffer) >= 24 or "\n" in answer_delta_buffer:
+                            await emit(
+                                "answer_delta", step=final_step,
+                                agent_id=self._primary.id,
+                                delta=answer_delta_buffer,
+                            )
+                            answer_delta_buffer = ""
+
                     async with asyncio.timeout(loop.remaining_seconds):
-                        turn = await self.step(HarnessStepState(
-                            messages=final_messages, tools=(), step=final_step,
-                            max_steps=max_steps,
-                        ))
+                        stream_complete = getattr(self._model, "stream_complete", None)
+                        if callable(stream_complete):
+                            turn = await stream_complete(
+                                final_messages, (), on_text_delta=answer_delta,
+                            )
+                            if answer_delta_buffer:
+                                await emit(
+                                    "answer_delta", step=final_step,
+                                    agent_id=self._primary.id,
+                                    delta=answer_delta_buffer,
+                                )
+                        else:
+                            turn = await self.step(HarnessStepState(
+                                messages=final_messages, tools=(), step=final_step,
+                                max_steps=max_steps,
+                            ))
                     await emit(
                         "model_completed", step=final_step, phase="reconciliation",
                         agent_id=self._primary.id,
@@ -639,8 +683,12 @@ class OrchestratorHarness:
             )
         child_input = "\n\n".join(child_sections)
         child_evidence: list[dict[str, str | None]] = []
+        clarification_message = ""
 
         async def forward_child_event(child_event: AgentEvent) -> None:
+            nonlocal clarification_message
+            if child_event.type == "clarification_requested":
+                clarification_message = str(child_event.data.get("message", "")).strip()
             if child_event.type in {"run_started", "run_completed", "run_failed", "run_cancelled"}:
                 return
             if (
@@ -692,7 +740,42 @@ class OrchestratorHarness:
                 plan_node_id=plan.node_id, agent_id=plan.agent.id, skill_id=plan.skill_id,
                 status=child.status.value, child_steps=child.steps, error_code=child.error_code,
                 result_summary=child.answer, node_result=child_node_result,
+                outcome="clarification" if clarification_message else "evidence",
             )
+        if child.status == RunStatus.COMPLETED and clarification_message:
+            previous_node_id = plan.node_id
+            previous_fingerprint = plan.node_fingerprint
+            for evaluator_kind, evaluator in self._evaluators_for(plan.skill_id):
+                evaluator_node_id = (
+                    f"{plan.node_id}.{self._evaluator_suffix(evaluator_kind)}"
+                )
+                evaluator_fingerprint = self._evaluator_node_fingerprint(
+                    plan, evaluator_kind, evaluator, previous_node_id,
+                    previous_fingerprint,
+                )
+                await emit(
+                    "node_skipped", step=step, plan_node_id=evaluator_node_id,
+                    node_fingerprint=evaluator_fingerprint,
+                    reason="clarification_terminal", depends_on=[previous_node_id],
+                )
+                previous_node_id = evaluator_node_id
+                previous_fingerprint = evaluator_fingerprint
+            payload = {
+                "kind": "clarification", "status": "completed",
+                "node_id": plan.node_id, "agent_id": plan.agent.id,
+                "skill_id": plan.skill_id, "child_run_id": child_run_id,
+                "summary": clarification_message, "outputs": {},
+                "findings": [], "evidence": ["clarification_requested"],
+                "verification": None, "evaluations": [], "concerns": [],
+                "recommended_next": ["await_user_input"],
+            }
+            result = ToolResult(json.dumps(payload, ensure_ascii=False))
+            await emit(
+                "tool_completed", step=step, tool=plan.call.name,
+                call_id=plan.call.id, is_error=False, truncated=False,
+                plan_node_id=plan.node_id,
+            )
+            return DispatchOutcome(plan, result, payload, True)
         evaluations: list[dict[str, Any]] = []
         passed = child.status == RunStatus.COMPLETED
         previous_node_id = plan.node_id

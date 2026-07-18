@@ -97,7 +97,8 @@ public sealed record DataSummaryGroup(
     decimal NetSupplierCost,
     decimal PaidAmount,
     decimal SuccessfulRefundAmount,
-    decimal DemoGrossMargin);
+    decimal DemoGrossMargin,
+    long NegativeMarginOrderCount);
 
 public sealed record DataSummaryTotals(
     long OrderCount,
@@ -105,7 +106,8 @@ public sealed record DataSummaryTotals(
     decimal NetSupplierCost,
     decimal PaidAmount,
     decimal SuccessfulRefundAmount,
-    decimal DemoGrossMargin);
+    decimal DemoGrossMargin,
+    long NegativeMarginOrderCount);
 
 public sealed record DataSummaryResult(
     DateOnly StartDate,

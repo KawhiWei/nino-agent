@@ -1,0 +1,115 @@
+{
+  "suite": {
+    "id": "nino-data.analysis.standard",
+    "version": "1.2.0",
+    "skill_id": "nino-data.analysis",
+    "path": "/Users/wangzewei/Documents/Code/github/luck/AiAgent/newagent-vv/nino-agent/agent/shared/question-banks/nino-data-analysis/standard.json",
+    "derived_from": [
+      "../../skills/nino-data-analysis/skill.json",
+      "../../skills/nino-data-analysis/SKILL.md",
+      "../../skills/nino-data-analysis/references/metric-definitions.md",
+      "../../skills/nino-data-analysis/references/order-query-rules.md",
+      "../../skills/nino-data-analysis/references/anomaly-rules.md",
+      "../../skills/nino-data-analysis/references/report-output-spec.md",
+      "../../../../database/seeds/001_demo_data.sql",
+      "../../../../database/tests/assertions.sql"
+    ]
+  },
+  "runtime": {
+    "status": "ok",
+    "service": "nino-agent-runtime",
+    "version": "0.15.1",
+    "runtime_mode": "live",
+    "agent_engine": "lightweight",
+    "model_adapter": "native"
+  },
+  "case_count": 2,
+  "score": 100.0,
+  "results": [
+    {
+      "id": "july-summary-report",
+      "category": "aggregate",
+      "tags": [
+        "smoke",
+        "aggregate",
+        "report",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:summary and report routing",
+        "metric-definitions.md",
+        "report-output-spec.md",
+        "database assertions.sql"
+      ],
+      "run_id": "eb816591-fdad-4e1f-ada0-c1b9ac8911d4",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_query_summary",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "metric-definitions",
+        "report-output-spec"
+      ],
+      "model_calls": 7,
+      "max_observed_step": 3,
+      "max_observed_actions": 4,
+      "answer": "2026-07-01（含）至 2026-08-01（不含）有效、非测试、已支付订单简明报表如下：\n\n- 订单数：2,042 单\n- 收入：2,282,430.00 CNY\n- 成本：1,958,219.00 CNY\n- 成功退款：15,770.00 CNY\n- 毛利：308,441.00 CNY\n- 亏损订单数：24 单\n\n结论：整体为正毛利，未出现整体亏损。\n\n口径说明：\n- 时间范围：2026-07-01（含）至 2026-08-01（不含）\n- 统计对象：非测试订单，且至少有一条支付记录\n- 收入：customer resource 的 sale_amount 汇总\n- 成本：supplier resource 的 contract_amount 净额汇总\n- 成功退款：仅统计 refund_status = 2 的退款金额\n- 毛利计算：收入 - 成本 - 成功退款 = 2,282,430.00 - 1,958,219.00 - 15,770.00 = 308,441.00\n\n说明：\n- 已验证汇总结果与底层聚合查询一致。\n- “有效”这一条件按当前统计 Skill 的权威聚合口径验证，底层系统字段未单独展开。",
+      "error_code": null
+    },
+    {
+      "id": "lowest-margin-five",
+      "category": "anomaly",
+      "tags": [
+        "anomaly",
+        "report",
+        "golden",
+        "standard"
+      ],
+      "derived_from": [
+        "SKILL.md:anomaly tool selection",
+        "anomaly-rules.md",
+        "report-output-spec.md",
+        "database deterministic bottom five"
+      ],
+      "run_id": "fef74b3b-783b-4dad-a2ff-105536a99b70",
+      "status": "completed",
+      "score": 100,
+      "scores": {
+        "status": 20,
+        "routing": 20,
+        "evidence": 20,
+        "answer_facts": 30,
+        "loop_safety": 10
+      },
+      "tools": [
+        "nino_data_find_anomalies",
+        "nino_data_query_summary",
+        "nino_runtime_load_reference",
+        "nino_runtime_submit_evaluator_verdict",
+        "nino_runtime_submit_task_graph_node"
+      ],
+      "references": [
+        "anomaly-rules",
+        "metric-definitions",
+        "report-output-spec"
+      ],
+      "model_calls": 8,
+      "max_observed_step": 3,
+      "max_observed_actions": 6,
+      "answer": "已生成异常报表如下。\n\n# 2026年7月最亏损5个有效订单异常报表\n\n**统计范围**  \n- 时间：2026-07-01 至 2026-08-01（左闭右开）\n- 有效订单口径：**非测试订单，且至少有一条付款记录**\n- 币种：**CNY**\n\n**总体情况**  \n- 有效订单数：**2,042**\n- 负毛利订单数：**24**\n\n## 最亏损的 5 个有效订单\n按毛利从低到高排序：\n\n| 排名 | 订单号 | 毛利 | 原因 |\n|---|---|---:|---|\n| 1 | DEMO-202607-032 | -450.0 | 客户销售额 500，供应商净成本 450，成功退款 500，毛利=500-450-500=-450。客户退款已发生，但未见足够的供应商侧回收，导致亏损最大。 |\n| 2 | DEMO-202607-039 | -180.0 | 客户销售额 400，供应商净成本 380，成功退款 200，毛利=400-380-200=-180。退款未被供应商回收充分覆盖，是直接亏损原因。 |\n| 3 | DEMO-202607-038 | -100.0 | 客户销售额 600，供应商净成本 400，成功退款 300，毛利=600-400-300=-100。客户成功退款后，供应商侧未形成足够冲回，因此转为负毛利。 |\n| 4 | SYN-018615 | -76.5 | 客户销售额 1915，供应商净成本 1800，成功退款 191.5，毛利=1915-1800-191.5=-76.5。退款金额超过原本较薄的毛利空间，且无足够供应商回收，形成亏损。 |\n| 5 | SYN-001445 | -69.5 | 客户销售额 1745，供应商净成本 1640，成功退款 174.5，毛利=1745-1640-174.5=-69.5。原始毛利空间有限，叠加成功退款且无充分供应商回收后转为负毛利。 |\n\n## 异常结论\n- 这 5 个订单全部命中相同异常原因码：\n  - **NEGATIVE_MARGIN**\n  - **REFUND_NOT_RECOVERED_FROM_SUPPLIER**\n- 从已核验证据看，这 5 单**不是支付金额与销售额不一致**导致，因为 `paidAmount` 与 `customerSaleAmount` 一致。\n- 主要异常集中在：**客户退款成功后，供应商侧未充分回收，导致订单转为负毛利。**\n\n## 说明\n- `REFUND_NOT_RECOVERED_FROM_SUPPLIER` 是确定性异常信号，**不等同于正式财务核销结论**。\n- 本报表已通过核验；如需，我可以继续展开这 5 单任一订单的支付、退款、供应商回收等明细。",
+      "error_code": null
+    }
+  ]
+}

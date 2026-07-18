@@ -204,10 +204,21 @@ class TaskGraphController:
         if node is None:
             return
         evidence = tuple(dict.fromkeys(self._successful_evidence.pop(child_id, ())))
-        accepted = event.type == "agent_completed" and event.data.get("status") == "completed" and bool(evidence)
+        clarification = event.data.get("outcome") == "clarification"
+        control_evidence = ("clarification_requested",) if clarification else ()
+        accepted = (
+            event.type == "agent_completed"
+            and event.data.get("status") == "completed"
+            and bool(evidence or control_evidence)
+        )
         now = utc_now()
         node.status, node.completed_at = (TaskNodeStatus.COMPLETED if accepted else TaskNodeStatus.FAILED), now
-        node.error_code = None if accepted else str(event.data.get("error_code", "EVIDENCE_GATE_FAILED"))
+        raw_error = event.data.get("error_code")
+        node.error_code = (
+            None if accepted
+            else str(raw_error).strip() if raw_error is not None
+            else "EVIDENCE_GATE_FAILED"
+        )
         node_result = event.data.get("node_result", {})
         node.result = dict(node_result) if isinstance(node_result, dict) else {}
         node.result_summary = str(
@@ -218,6 +229,9 @@ class TaskGraphController:
         )
         gate = next(item for item in current.gates if item.node_id == node.id)
         passed_verdict = (
+            "A bounded clarification request was recorded as control evidence."
+            if clarification
+            else
             f"Independent {node.kind} returned PASS with Tool evidence."
             if node.kind in {"verification", "review", "critique"}
             else "Successful Tool Observation recorded."
@@ -226,10 +240,13 @@ class TaskGraphController:
             (GateStatus.PASSED, passed_verdict)
             if accepted else (GateStatus.FAILED, "Missing evidence or evaluator PASS verdict.")
         )
-        gate.evidence, gate.evaluated_at = evidence, now
+        gate.evidence, gate.evaluated_at = evidence or control_evidence, now
         attempt = next(item for item in reversed(current.attempts) if item.node_id == node.id)
         attempt.status, attempt.completed_at = (AttemptStatus.COMPLETED if accepted else AttemptStatus.FAILED), now
-        attempt.error_code, attempt.checkpoint = node.error_code, {"evidence_tools": list(evidence)}
+        attempt.error_code, attempt.checkpoint = node.error_code, {
+            "evidence_tools": list(evidence),
+            "control_evidence": list(control_evidence),
+        }
         attempt.lease_owner, attempt.lease_expires_at = None, None
         await self._repository.commit_task_node(node, gate, attempt)
 
@@ -393,11 +410,20 @@ class TaskGraphController:
         if node is None:
             return
         now = utc_now()
+        reason = str(event.data.get("reason", "dependency_failed"))
+        clarification = reason == "clarification_terminal"
         node.status, node.completed_at = TaskNodeStatus.SKIPPED, now
-        node.error_code = "DEPENDENCY_FAILED"
+        node.error_code = (
+            "CLARIFICATION_TERMINAL" if clarification else "DEPENDENCY_FAILED"
+        )
         gate = next(item for item in current.gates if item.node_id == node.id)
         gate.status, gate.verdict, gate.evaluated_at = (
-            GateStatus.BLOCKED, "A required dependency failed.", now
+            GateStatus.BLOCKED,
+            (
+                "Verification is not required for a bounded clarification terminal."
+                if clarification else "A required dependency failed."
+            ),
+            now,
         )
         await self._repository.upsert_task_node(node)
         await self._repository.upsert_task_gate(gate)

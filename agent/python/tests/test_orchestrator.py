@@ -33,6 +33,22 @@ class QueueModel:
         return self.turns.pop(0)
 
 
+class StreamingQueueModel(QueueModel):
+    async def stream_complete(
+        self, messages: Sequence[Message], tools: Sequence[ToolDefinition],
+        on_text_delta=None,
+    ) -> ModelTurn:
+        self.messages.append(messages)
+        self.tools.append(tools)
+        turn = self.turns.pop(0)
+        for delta in ("流式", "答案"):
+            if on_text_delta is not None:
+                value = on_text_delta(delta)
+                if asyncio.iscoroutine(value):
+                    await value
+        return turn
+
+
 class FakeWorker:
     def __init__(self, status: RunStatus = RunStatus.COMPLETED) -> None:
         self.calls: list[tuple[str, str | None]] = []
@@ -124,6 +140,22 @@ class EvidenceWorker(FakeWorker):
         return result
 
 
+class ClarificationWorker(FakeWorker):
+    async def run(
+        self, task: str, *, run_id: str, selected_skill_id: str | None = None,
+        on_event=None,
+    ) -> RunResult:
+        self.calls.append((task, selected_skill_id))
+        message = "请提供需要查询的订单号。"
+        if on_event is not None:
+            await on_event(AgentEvent(
+                run_id, 1, "clarification_requested", {"message": message}
+            ))
+        return RunResult(
+            run_id, RunStatus.COMPLETED, message, selected_skill_id, 1, (),
+        )
+
+
 class StructuredWorker(FakeWorker):
     async def run(
         self, task: str, *, run_id: str, selected_skill_id: str | None = None,
@@ -172,6 +204,17 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("agent_started", [event.type for event in result.events])
         self.assertIn("policy_rejected", [event.type for event in result.events])
 
+    async def test_skill_exclusion_rejects_react_question_without_model_call(self) -> None:
+        model = QueueModel()
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: FakeWorker()
+        ).run("请解释 ReAct Agent 中 Reason、Action、Observation 的关系。")
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        self.assertIsNone(result.skill_id)
+        self.assertEqual([], model.messages)
+        self.assertIn("不在已注册 Skill", result.answer)
+
     async def test_orchestrator_can_request_top_level_clarification(self) -> None:
         result = await OrchestratorHarness(
             QueueModel(ModelTurn(tool_calls=(ToolCall(
@@ -184,6 +227,48 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(RunStatus.COMPLETED, result.status)
         self.assertEqual("请提供需要统计的日期范围？", result.answer)
         self.assertIn("clarification_requested", [event.type for event in result.events])
+
+    async def test_worker_clarification_terminates_without_verifier(self) -> None:
+        worker = ClarificationWorker()
+        result = await OrchestratorHarness(
+            QueueModel(ModelTurn(tool_calls=(ToolCall(
+                "clarify-node", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "clarify-order", "agent_id": "nino.analyst",
+                    "skill_id": "nino-data.analysis",
+                    "task": "Ask for the missing exact order id.",
+                },
+            ),))),
+            self.skills, self.agents, lambda _: worker,
+        ).run("查询订单")
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        self.assertEqual("nino-data.analysis", result.skill_id)
+        self.assertEqual("请提供需要查询的订单号。", result.answer)
+        self.assertEqual(1, len(worker.calls))
+        skipped = [event for event in result.events if event.type == "node_skipped"]
+        self.assertEqual("clarification_terminal", skipped[0].data["reason"])
+
+    async def test_streams_only_final_reconciliation_as_answer_deltas(self) -> None:
+        model = StreamingQueueModel(
+            ModelTurn(tool_calls=(ToolCall(
+                "query", "nino_runtime_submit_task_graph_node", {
+                    "node_id": "query", "agent_id": "nino.analyst",
+                    "skill_id": "nino-data.analysis", "task": "Query one order",
+                },
+            ),)),
+            ModelTurn(text="流式答案"),
+        )
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: EvidenceWorker(),
+        ).run("查询订单 DEMO-202607-001")
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        deltas = [
+            event.data["delta"] for event in result.events
+            if event.type == "answer_delta"
+        ]
+        self.assertEqual(["流式答案"], deltas)
+        self.assertEqual(result.answer, "".join(deltas))
 
     async def test_rejects_direct_answer_for_matched_skill(self) -> None:
         result = await OrchestratorHarness(
@@ -546,12 +631,12 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(2, len(query_nodes))
         self.assertEqual(
-            {"1.0.0", "2.0.0"},
+            {"1.1.0", "2.0.0"},
             {item.metadata.get("skill_version") for item in query_nodes},
         )
         old_query = next(
             item for item in query_nodes
-            if item.metadata.get("skill_version") == "1.0.0"
+            if item.metadata.get("skill_version") == "1.1.0"
         )
         new_query = next(
             item for item in query_nodes
