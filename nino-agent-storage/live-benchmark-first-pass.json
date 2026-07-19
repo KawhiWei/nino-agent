@@ -25,7 +25,7 @@
   },
   "case_count": 14,
   "turn_count": 23,
-  "score": 100,
+  "score": 78.7,
   "results": [
     {
       "id": "out-of-scope-refusal",
@@ -702,14 +702,14 @@
         "Planner history-answer control policy",
         "previous accepted answer for DEMO-202607-032"
       ],
-      "run_id": "dad9e574-2d28-477a-82de-7fcfa9ad5e7c",
+      "run_id": "32dfec68-2ed2-4b86-a02f-9eb48fa84a82",
       "status": "completed",
-      "score": 100,
+      "score": 70,
       "scores": {
         "status": 20,
         "routing": 20,
         "evidence": 20,
-        "answer_facts": 30,
+        "answer_facts": 0,
         "loop_safety": 10
       },
       "tools": [],
@@ -722,7 +722,7 @@
       "outcome": "history_answer",
       "max_observed_step": 1,
       "max_observed_actions": 0,
-      "answer": "这笔订单是**亏损**，毛利为 **-450 CNY**。",
+      "answer": "这笔订单是**盈利**，上一轮结果显示其**毛利为 100 CNY**。",
       "error_code": null
     },
     {
@@ -741,36 +741,29 @@
         "anomaly-rules.md",
         "database golden case DEMO-202607-032"
       ],
-      "run_id": "4c242752-2783-4536-a91b-ed91d41015a8",
-      "status": "completed",
-      "score": 100,
+      "run_id": "f8608ff3-37d3-4f39-a506-a957204304eb",
+      "status": "failed",
+      "score": 0,
       "scores": {
-        "status": 20,
-        "routing": 20,
-        "evidence": 20,
-        "answer_facts": 30,
-        "loop_safety": 10
+        "status": 0,
+        "routing": 0,
+        "evidence": 0,
+        "answer_facts": 0,
+        "loop_safety": 0
       },
       "tools": [
-        "nino_data_get_order_detail",
-        "nino_runtime_load_reference",
-        "nino_runtime_submit_evaluator_verdict",
         "nino_runtime_submit_task_graph_node"
       ],
-      "references": [
-        "metric-definitions",
-        "order-query-rules"
-      ],
-      "model_calls": 6,
+      "references": [],
+      "model_calls": 3,
       "model_phases": [
-        "planning",
-        "reconciliation"
+        "planning"
       ],
-      "outcome": "normal",
+      "outcome": null,
       "max_observed_step": 2,
-      "max_observed_actions": 4,
-      "answer": "订单 **DEMO-202607-032** 是**亏损订单**，毛利为 **-450 CNY**。\n\n### 结论\n亏损的直接原因是：**客户侧已成功全额退款 500 CNY，但订单中仍保留 450 CNY 的供应商成本，且当前订单数据里未见对应的供应商侧回收冲减记录**，因此原本的正毛利被退款拉成负数。\n\n### 明细\n- **收入**：500 CNY\n- **成本**：450 CNY\n- **成功退款**：500 CNY\n- **毛利**：-450 CNY\n\n### 计算公式\n**毛利 = 客户销售收入 - 净供应商成本 - 成功退款**\n\n### 计算过程\n1. 客户销售收入 = **500**\n2. 净供应商成本 = **450**\n3. 成功退款 = **500**\n4. 毛利 = **500 - 450 - 500 = -450**\n\n### 补充说明\n- 该笔成功退款记录金额为 **500 CNY**，状态为成功完成。\n- 订单支付金额与原始销售金额一致，**支付本身不是亏损原因**。\n- 目前能确认的是：**订单数据中未见供应商侧回收冲减记录**；至于是否属于供应商未退款、未入账或其他运营原因，单凭当前订单数据不能进一步下结论。\n\n如需，我还可以继续帮你把这单整理成一份更适合发给财务/运营的“亏损原因说明”。",
-      "error_code": null
+      "max_observed_actions": 1,
+      "answer": "Model request failed.",
+      "error_code": "DEPENDENCY_ERROR"
     },
     {
       "id": "missing-order-detail",
@@ -786,35 +779,27 @@
         "order-query-rules.md",
         "nino_data_get_order_detail not-found contract"
       ],
-      "run_id": "147fd62f-0e99-4fc1-a4c5-72fa7ef5b71c",
-      "status": "completed",
-      "score": 100,
+      "run_id": "92e83413-3f8c-468a-8c0a-4214a3fe6bd6",
+      "status": "failed",
+      "score": 10,
       "scores": {
-        "status": 20,
-        "routing": 20,
-        "evidence": 20,
-        "answer_facts": 30,
+        "status": 0,
+        "routing": 0,
+        "evidence": 0,
+        "answer_facts": 0,
         "loop_safety": 10
       },
-      "tools": [
-        "nino_data_get_order_detail",
-        "nino_runtime_load_reference",
-        "nino_runtime_submit_evaluator_verdict",
-        "nino_runtime_submit_task_graph_node"
-      ],
-      "references": [
-        "order-query-rules"
-      ],
-      "model_calls": 6,
+      "tools": [],
+      "references": [],
+      "model_calls": 1,
       "model_phases": [
-        "planning",
-        "reconciliation"
+        "planning"
       ],
-      "outcome": "normal",
-      "max_observed_step": 2,
-      "max_observed_actions": 3,
-      "answer": "结论：订单 **DEMO-209912-999 不存在**。\n\n查询到的明细结果如下：\n- 订单号：`DEMO-209912-999`\n- 是否存在：`否`\n- 订单主体信息：`null`\n- 客户资源：`[]`\n- 供应商资源：`[]`\n- 支付记录：`[]`\n- 退款记录：`[]`\n\n依据：\n- 订单明细精确查询返回 `data.found = false`\n- 工具告警：`No order was found for the supplied order_serial_id.`\n\n未解决问题：无。  \n如果你愿意，我也可以继续帮你查询另一个准确的订单号。",
-      "error_code": null
+      "outcome": null,
+      "max_observed_step": 1,
+      "max_observed_actions": 0,
+      "answer": "Model request failed.",
+      "error_code": "DEPENDENCY_ERROR"
     },
     {
       "id": "multi-resource-order-033",
@@ -831,36 +816,27 @@
         "database golden case DEMO-202607-033",
         "database seed multi-resource rows"
       ],
-      "run_id": "6346169e-6254-4e5b-b7a3-2b8f5e293c20",
-      "status": "completed",
-      "score": 100,
+      "run_id": "d20bc072-7ef2-4375-90dc-4c8bff443295",
+      "status": "failed",
+      "score": 10,
       "scores": {
-        "status": 20,
-        "routing": 20,
-        "evidence": 20,
-        "answer_facts": 30,
+        "status": 0,
+        "routing": 0,
+        "evidence": 0,
+        "answer_facts": 0,
         "loop_safety": 10
       },
-      "tools": [
-        "nino_data_get_order_detail",
-        "nino_runtime_load_reference",
-        "nino_runtime_submit_evaluator_verdict",
-        "nino_runtime_submit_task_graph_node"
-      ],
-      "references": [
-        "metric-definitions",
-        "order-query-rules"
-      ],
-      "model_calls": 7,
+      "tools": [],
+      "references": [],
+      "model_calls": 1,
       "model_phases": [
-        "planning",
-        "reconciliation"
+        "planning"
       ],
-      "outcome": "normal",
-      "max_observed_step": 3,
-      "max_observed_actions": 4,
-      "answer": "已核对订单 **DEMO-202607-033**，该订单属于**多客户资源 + 多供应商资源**场景，整体数据一致，**未发现明显异常**。\n\n**核对结果**\n- 客户资源：**2 条**\n- 供应商资源：**2 条**\n- 资源类型对齐正常，双方均覆盖：\n  - **GT-CAR / resourceType 3001**\n  - **GT-INSURANCE / resourceType 9001**\n\n**客户资源明细**\n1. GT-CAR：销售金额 **600.00 CNY**\n2. GT-INSURANCE：销售金额 **400.00 CNY**\n\n客户资源收入合计：**1000.00 CNY**\n\n**供应商资源明细**\n1. GT-CAR：合同成本 **500.00 CNY**\n2. GT-INSURANCE：合同成本 **320.00 CNY**\n\n供应商成本合计：**820.00 CNY**\n\n**订单层财务结果**\n- 收入：**1000.00 CNY**\n- 成本：**820.00 CNY**\n- 成功退款：**0.00 CNY**\n- 毛利：**180.00 CNY**\n\n**毛利计算口径**\n- 毛利 = 客户销售收入 - 净供应商成本 - 成功退款金额\n- **180.00 = 1000.00 - 820.00 - 0.00**\n\n**一致性检查**\n- 订单主记录销售金额 **1000.00**，与客户资源收入汇总 **600.00 + 400.00 = 1000.00** 一致\n- 供应商资源合同金额汇总 **500.00 + 320.00 = 820.00**，与净供应商成本一致\n- 已支付金额 **1000.00 CNY**，与订单收入一致\n- 未查询到成功退款记录\n- 未发现负成本、退款冲突、支付缺口或资源汇总不一致问题\n\n结论：该订单多客户/多供应商资源匹配正常，**收入 1000.00 CNY、成本 820.00 CNY、退款 0.00 CNY、毛利 180.00 CNY**。",
-      "error_code": null
+      "outcome": null,
+      "max_observed_step": 1,
+      "max_observed_actions": 0,
+      "answer": "Model request failed.",
+      "error_code": "DEPENDENCY_ERROR"
     },
     {
       "id": "lowest-margin-five",
@@ -878,37 +854,27 @@
         "report-output-spec.md",
         "database deterministic bottom five"
       ],
-      "run_id": "2111a2c2-7310-49cc-8afc-5d337ddf8e09",
-      "status": "completed",
-      "score": 100,
+      "run_id": "a2e1d449-cbb4-42da-ac34-8c11d38bc293",
+      "status": "failed",
+      "score": 10,
       "scores": {
-        "status": 20,
-        "routing": 20,
-        "evidence": 20,
-        "answer_facts": 30,
+        "status": 0,
+        "routing": 0,
+        "evidence": 0,
+        "answer_facts": 0,
         "loop_safety": 10
       },
-      "tools": [
-        "nino_data_find_anomalies",
-        "nino_runtime_load_reference",
-        "nino_runtime_submit_evaluator_verdict",
-        "nino_runtime_submit_task_graph_node"
-      ],
-      "references": [
-        "anomaly-rules",
-        "metric-definitions",
-        "report-output-spec"
-      ],
-      "model_calls": 7,
+      "tools": [],
+      "references": [],
+      "model_calls": 1,
       "model_phases": [
-        "planning",
-        "reconciliation"
+        "planning"
       ],
-      "outcome": "normal",
-      "max_observed_step": 3,
-      "max_observed_actions": 5,
-      "answer": "已生成 **2026 年 7 月最亏损的 5 个有效订单异常报表**。  \n统计范围：**2026-07-01（含）至 2026-08-01（不含）**，币种 **CNY**。  \n有效订单口径：**非测试且至少有一条支付记录的聚合订单**。  \n排序口径：**按 demoGrossMargin（演示毛利）从低到高**。\n\n### 报表结果\n\n| 排名 | 订单号 | 毛利 | 原因 |\n|---|---|---:|---|\n| 1 | DEMO-202607-032 | -450.0 | 客户销售收入 500，净供应商成本 450，成功退款 500，毛利 = 500 - 450 - 500 = -450。客户已成功退款，但现有数据未见足够供应商侧回收，退款直接压低毛利并形成最大亏损。 |\n| 2 | DEMO-202607-039 | -180.0 | 客户销售收入 400，净供应商成本 380，成功退款 200，毛利 = 400 - 380 - 200 = -180。订单出现成功退款，但供应商回收不足以覆盖退款影响，因此形成明显负毛利。 |\n| 3 | DEMO-202607-038 | -100.0 | 客户销售收入 600，净供应商成本 400，成功退款 300，毛利 = 600 - 400 - 300 = -100。退款金额较高，而现有数据未显示足够的供应商侧回收，导致订单转为亏损。 |\n| 4 | SYN-018615 | -76.5 | 客户销售收入 1915，净供应商成本 1800，成功退款 191.5，毛利 = 1915 - 1800 - 191.5 = -76.5。原始销售与成本差额较薄，叠加成功退款且供应商回收不足后转为负毛利。 |\n| 5 | SYN-001445 | -69.5 | 客户销售收入 1745，净供应商成本 1640，成功退款 174.5，毛利 = 1745 - 1640 - 174.5 = -69.5。订单本身毛利空间有限，退款发生后因供应商回收不足而出现亏损。 |\n\n### 异常结论\n这 5 个最亏损有效订单的共同异常信号是：**存在成功退款，但供应商侧回收不足，导致毛利为负**。\n\n当前无未解决校验问题。  \n如需，我可以继续按任一订单下钻，补充支付、退款、客户资源和供应商资源明细。",
-      "error_code": null
+      "outcome": null,
+      "max_observed_step": 1,
+      "max_observed_actions": 0,
+      "answer": "Model request failed.",
+      "error_code": "DEPENDENCY_ERROR"
     },
     {
       "id": "annual-channel-performance",
@@ -925,49 +891,27 @@
         "metric-definitions.md",
         "database deterministic 12-month channel totals"
       ],
-      "run_id": "8cdacddb-a610-4a37-a4bf-956e36b00fdf",
-      "status": "completed",
-      "score": 100,
+      "run_id": "5e8aa9f0-0055-459a-bc23-2d4384239791",
+      "status": "failed",
+      "score": 10,
       "scores": {
-        "status": 20,
-        "routing": 20,
-        "evidence": 20,
-        "answer_facts": 30,
+        "status": 0,
+        "routing": 0,
+        "evidence": 0,
+        "answer_facts": 0,
         "loop_safety": 10
       },
-      "tools": [
-        "nino_data_query_summary",
-        "nino_runtime_load_reference",
-        "nino_runtime_submit_evaluator_verdict",
-        "nino_runtime_submit_task_graph_node"
-      ],
-      "references": [
-        "metric-definitions",
-        "report-output-spec"
-      ],
-      "model_calls": 6,
+      "tools": [],
+      "references": [],
+      "model_calls": 1,
       "model_phases": [
-        "planning",
-        "reconciliation"
+        "planning"
       ],
-      "outcome": "normal",
-      "max_observed_step": 2,
-      "max_observed_actions": 4,
-      "answer": "结论：在 2025-08-01（含）到 2026-08-01（不含）期间，毛利最高的渠道是 **partner**。\n\n该渠道表现如下（币种：**CNY**）：\n- **订单数**：6,081\n- **收入**：6,923,683.00\n- **毛利**：936,243.50\n\n判定依据：\n- partner：936,243.50\n- web：925,544.90\n- corporate：925,350.68\n- app：915,642.32\n\n补充说明：该时间范围内订单量最高的是 **web**（6,093 单），但毛利最高的是 **partner**，说明订单量最高不一定代表毛利最高。",
-      "error_code": null
+      "outcome": null,
+      "max_observed_step": 1,
+      "max_observed_actions": 0,
+      "answer": "Model request failed.",
+      "error_code": "DEPENDENCY_ERROR"
     }
-  ],
-  "verification": {
-    "mode": "first-pass-with-successful-reruns",
-    "first_pass_report": "live-benchmark-first-pass.json",
-    "replaced_turn_ids": [
-      "annual-channel-performance",
-      "lowest-margin-five",
-      "missing-order-detail",
-      "multi-resource-order-033",
-      "negative-margin-order-032",
-      "supplier-refund-recovery-031/summarize-recovered-query"
-    ],
-    "note": "DEPENDENCY_ERROR turns and the corrected latest-answer follow-up were replaced by isolated successful reruns."
-  }
+  ]
 }

@@ -34,6 +34,12 @@ description: |
   that can be completed from explicit facts in prior accepted assistant answers without new data.
   中文：history-answer Action 只用于无需新数据、可由先前已接受回答中的显式事实完成的解释、比较、
   改写或计算。
+- During semantic fallback, reject immediately when the requested domain or operation does not fit
+  any listed capability. Clarification is only for a request that already fits a listed capability
+  but lacks an execution parameter or has an ambiguous supported intent; never use clarification to
+  discuss or negotiate an unsupported request.
+  中文：语义 fallback 中，请求的领域或操作不属于任何候选能力时必须直接拒绝。只有请求已经属于候选
+  能力，但缺少执行参数或支持范围内的意图确有歧义时才能澄清；不得用澄清讨论或协商不支持的请求。
 - Never call MCP tools, execute a Skill, persist Graph state, dispatch workers, or write a final answer.
   中文：不得调用 MCP Tool、执行 Skill、持久化 Graph、调度 Worker 或直接写最终回答。
 - Never treat your proposal as accepted; the Orchestrator validates and owns Graph Truth.

@@ -23,7 +23,7 @@ shared/
 9. 通用 Analyst 和 Verifier 在新上下文中加载选定 Skill。有效 Tool 是 MCP 发现结果、Skill 白名单和
    Agent 角色策略的交集。
 10. Agent 和 Skill 的 `loop` 值是策略上限。Runtime 对每个字段取最严格值；业务定义只能收紧预算。
-11. `excluded_intent_keywords` 先于正向 `intent_keywords` 计算；被明确排除的请求不得进入模型路由。
+11. Skill 只声明自身支持的 `intent_keywords` 和 `capabilities`；未匹配任何已注册能力的请求必须拒绝。
 12. 生产 Skill 应声明位于 `question-banks/<capability>/` 的版本化 `evaluation_suites`。每个案例必须记录
     `derived_from` 来源，只能引用该 Skill 拥有的 Tool 和 Reference。
 13. 标准业务中立 Agent 是 `nino.orchestrator`、`nino.planner`、`nino.analyst` 和

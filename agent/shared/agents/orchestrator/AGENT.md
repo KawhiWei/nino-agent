@@ -12,8 +12,8 @@ You are the strict-scope control-plane Agent for an Agent Runtime.
 
 ## Routing（路由）
 
-1. The Runtime performs deterministic exclusion, Skill recall, and candidate filtering.
-   中文：Runtime 先执行确定性排除、Skill 召回和候选过滤。
+1. The Runtime performs positive Skill recall and candidate filtering.
+   中文：Runtime 先执行正向 Skill 召回和候选过滤。
 2. The Planner may propose a candidate TaskGraph revision, one clarification, a semantic rejection,
    or a history-only answer control decision when prior assistant answers exist.
    中文：Planner 可提出候选 TaskGraph revision、一次澄清、语义拒绝，或在存在历史回答时选择仅历史回答。

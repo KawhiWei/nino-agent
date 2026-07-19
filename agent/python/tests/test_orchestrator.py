@@ -233,22 +233,25 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         ).run("Explain what an API is")
 
         self.assertEqual(RunStatus.COMPLETED, result.status)
-        self.assertIn("不在已注册 Skill", result.answer)
+        self.assertEqual("当前请求不在支持的能力范围内", result.answer)
         self.assertEqual([], worker.calls)
         self.assertEqual(1, len(model.messages))
         self.assertNotIn("agent_started", [event.type for event in result.events])
         self.assertIn("policy_rejected", [event.type for event in result.events])
 
-    async def test_skill_exclusion_rejects_react_question_without_model_call(self) -> None:
-        model = QueueModel()
+    async def test_semantic_fallback_rejects_react_question(self) -> None:
+        model = QueueModel(ModelTurn(tool_calls=(ToolCall(
+            "reject-react", "nino_runtime_reject_request",
+            {"reason": "No supplied capability fits the request."},
+        ),)))
         result = await OrchestratorHarness(
             model, self.skills, self.agents, lambda _: FakeWorker()
         ).run("请解释 ReAct Agent 中 Reason、Action、Observation 的关系。")
 
         self.assertEqual(RunStatus.COMPLETED, result.status)
         self.assertIsNone(result.skill_id)
-        self.assertEqual([], model.messages)
-        self.assertIn("不在已注册 Skill", result.answer)
+        self.assertEqual(1, len(model.messages))
+        self.assertEqual("当前请求不在支持的能力范围内", result.answer)
 
     async def test_orchestrator_can_request_top_level_clarification(self) -> None:
         result = await OrchestratorHarness(
@@ -317,15 +320,18 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("INVALID_PLANNER_OUTPUT", result.error_code)
         self.assertIn("policy_rejected", [event.type for event in result.events])
 
-    async def test_excluded_write_intent_is_rejected_before_model_call(self) -> None:
-        model = QueueModel()
+    async def test_unsupported_write_intent_is_rejected_by_capability(self) -> None:
+        model = QueueModel(ModelTurn(tool_calls=(ToolCall(
+            "reject-write", "nino_runtime_reject_request",
+            {"reason": "The registered capability is read-only analysis."},
+        ),)))
         result = await OrchestratorHarness(
             model, self.skills, self.agents, lambda _: FakeWorker()
         ).run("请创建订单并写入数据库")
 
         self.assertEqual(RunStatus.COMPLETED, result.status)
-        self.assertIn("不在已注册 Skill", result.answer)
-        self.assertEqual([], model.messages)
+        self.assertEqual("当前请求不在支持的能力范围内", result.answer)
+        self.assertEqual(1, len(model.messages))
         rejected = [event for event in result.events if event.type == "policy_rejected"]
         self.assertEqual("OUT_OF_SCOPE", rejected[0].data["error_code"])
 
@@ -686,6 +692,30 @@ class OrchestratorHarnessTests(unittest.IsolatedAsyncioTestCase):
             "TRAIN_TICKET 毛利最低",
             model.messages[1][1].content,
         )
+
+    async def test_history_follow_up_marks_latest_answer_explicitly(self) -> None:
+        model = QueueModel(
+            ModelTurn(tool_calls=(ToolCall(
+                "history", "nino_runtime_answer_from_history", {},
+            ),)),
+            ModelTurn(text="上一轮订单亏损 450 CNY。"),
+        )
+
+        result = await OrchestratorHarness(
+            model, self.skills, self.agents, lambda _: FakeWorker()
+        ).run(
+            "上一轮这笔订单盈利还是亏损？",
+            history=(
+                Message(role="assistant", content="较早订单盈利 100 CNY。"),
+                Message(role="user", content="查询另一个订单。"),
+                Message(role="assistant", content="最新订单亏损 450 CNY。"),
+            ),
+        )
+
+        self.assertEqual(RunStatus.COMPLETED, result.status)
+        reconciliation_prompt = model.messages[1][1].content
+        self.assertIn('"latest_answer": "最新订单亏损 450 CNY。"', reconciliation_prompt)
+        self.assertIn('"earlier_answers": ["较早订单盈利 100 CNY。"]', reconciliation_prompt)
 
     async def test_reuses_completed_worker_and_evaluator_nodes_after_root_restart(self) -> None:
         repository = InMemoryAgentRepository()

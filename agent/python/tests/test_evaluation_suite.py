@@ -16,9 +16,9 @@ class EvaluationSuiteTests(unittest.TestCase):
 
         self.assertEqual("nino-data.analysis", suite.skill_id)
         self.assertEqual("nino-data.analysis.standard", suite.id)
-        self.assertEqual(11, len(suite.cases))
-        self.assertEqual(5, sum("smoke" in case.tags for case in suite.cases))
-        self.assertEqual(14, sum(1 + len(case.follow_ups) for case in suite.cases))
+        self.assertEqual(14, len(suite.cases))
+        self.assertEqual(6, sum("smoke" in case.tags for case in suite.cases))
+        self.assertEqual(23, sum(1 + len(case.follow_ups) for case in suite.cases))
         self.assertEqual(len(suite.cases), len({case.id for case in suite.cases}))
         self.assertTrue(all(case.derived_from for case in suite.cases))
         july = next(case for case in suite.cases if case.id == "july-summary-report")
@@ -46,8 +46,14 @@ class EvaluationSuiteTests(unittest.TestCase):
         )
         self.assertIn("history_reconciliation", history.required_model_phases)
         self.assertIn("history_reconciliation", unrelated.forbidden_model_phases)
-        self.assertEqual(0, out_of_scope.max_model_calls)
-        self.assertIn("planning", out_of_scope.forbidden_model_phases)
+        self.assertEqual(1, out_of_scope.max_model_calls)
+        self.assertIn("planning", out_of_scope.required_model_phases)
+
+        refund = next(case for case in suite.cases if case.id == "supplier-refund-recovery-031")
+        self.assertEqual(
+            {"related-history", "related-out-of-scope", "unrelated-new-data"},
+            {turn.relationship for turn in refund.follow_ups},
+        )
 
     def test_score_checks_history_outcome_and_planning_phase(self) -> None:
         follow_up = BenchmarkFollowUp(

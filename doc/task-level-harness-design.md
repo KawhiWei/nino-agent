@@ -253,7 +253,7 @@ sequenceDiagram
     R->>G: claim 根节点
     R->>DB: 读取历史或压缩上下文
     R->>O: run(user_input, history, on_event)
-    O->>O: 确定性排除和候选路由
+    O->>O: 正向召回和候选路由
     O->>P: 请求候选 TaskGraph revision
     P-->>O: 返回结构化候选节点
     O->>O: 确定性校验 proposal 和 DAG
@@ -304,13 +304,12 @@ proposal，而不是 Planner 已经直接修改了 Graph。
 Skill manifest 声明：
 
 - `intent_keywords`：确定性候选召回。
-- `excluded_intent_keywords`：当前 Skill 明确不允许处理的意图。
 - `routing.semantic_fallback`：关键词未命中时是否允许进入语义候选池。
 - `capabilities`：向 Planner 暴露的能力摘要。
 - `risk_level`：当前能力风险元数据。
 
-排除规则优先于语义 fallback。当前数据 Skill 明确排除写订单、修改数据库、写代码、新闻和闲聊等
-请求。
+每个 Skill 只描述自身支持的能力，不枚举其他 Skill 或系统不支持的意图。没有任何已注册能力匹配的
+请求由 Planner 结构化拒绝。
 
 ### 7.2 受控语义路由第二层
 

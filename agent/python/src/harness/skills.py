@@ -32,7 +32,6 @@ class Skill:
     intent_keywords: tuple[str, ...]
     allowed_tools: frozenset[str]
     max_steps: int
-    excluded_intent_keywords: tuple[str, ...] = ()
     references: tuple[SkillReference, ...] = ()
     is_default: bool = False
     capabilities: tuple[str, ...] = ()
@@ -83,12 +82,8 @@ class SkillRegistry:
         if not 1 <= max_steps <= 20:
             raise SkillConfigurationError("Skill max_steps must be between 1 and 20.")
         keywords = tuple(str(value).strip().lower() for value in manifest["intent_keywords"])
-        excluded_keywords = tuple(
-            str(value).strip().lower()
-            for value in manifest.get("excluded_intent_keywords", ())
-        )
         tools = frozenset(str(value).strip() for value in manifest["allowed_tools"])
-        if not all(keywords) or not all(excluded_keywords) or not tools:
+        if not all(keywords) or not tools:
             raise SkillConfigurationError("Skill keywords and allowed tools cannot be empty.")
         references = SkillRegistry._load_references(manifest_path, manifest.get("references", []))
         loop_config = manifest.get("loop", {})
@@ -125,7 +120,6 @@ class SkillRegistry:
             id=str(manifest["id"]), name=document.name, version=str(manifest["version"]),
             description=document.description, instructions=document.body,
             intent_keywords=keywords, allowed_tools=tools, max_steps=max_steps,
-            excluded_intent_keywords=excluded_keywords,
             references=references, is_default=bool(manifest.get("is_default", False)),
             capabilities=tuple(str(item) for item in manifest.get("capabilities", ())),
             risk_level=str(manifest.get("risk_level", "read-only")),
@@ -174,9 +168,7 @@ class SkillRegistry:
         ranked = sorted(
             (
                 (
-                    0
-                    if any(keyword in normalized for keyword in skill.excluded_intent_keywords)
-                    else sum(normalized.count(keyword) for keyword in skill.intent_keywords)
+                    sum(normalized.count(keyword) for keyword in skill.intent_keywords)
                 ),
                 skill.id,
                 skill,
@@ -196,11 +188,9 @@ class SkillRegistry:
         raise SkillConfigurationError("No registered skill matched the user input.")
 
     def semantic_candidates(self, user_input: str) -> tuple[Skill, ...]:
-        """Return explicitly opted-in Skills not excluded by deterministic policy."""
+        """Return Skills that opt in to semantic capability matching."""
 
-        normalized = user_input.lower()
         return tuple(
             skill for skill in self._skills
             if skill.semantic_routing
-            and not any(keyword in normalized for keyword in skill.excluded_intent_keywords)
         )

@@ -61,7 +61,7 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
         "relationship": {
-          "enum": ["related-history", "related-new-data", "unrelated-new-data", "unrelated-out-of-scope"]
+          "enum": ["related-history", "related-new-data", "related-out-of-scope", "unrelated-new-data", "unrelated-out-of-scope"]
         },
         "prompt": { "type": "string", "minLength": 1 },
         "derived_from": {

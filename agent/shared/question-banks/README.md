@@ -15,8 +15,8 @@
 
 ## Nino Data 题库
 
-权威套件为 `nino-data-analysis/standard.json`，当前版本 `1.3.0`，包含 11 个基础案例和 14 个实际
-测试轮次；其中 5 个 `smoke` 基础案例构成默认低成本回归集。数据库行由 MCP Tool 聚合，不会逐行
+权威套件为 `nino-data-analysis/standard.json`，当前版本 `1.4.0`，包含 14 个基础案例和 23 个实际
+测试轮次；其中 6 个 `smoke` 基础案例构成默认低成本回归集。数据库行由 MCP Tool 聚合，不会逐行
 复制进 Prompt。
 
 同一个基础案例可以使用 `follow_ups` 声明连续追问。Runner 会为基础案例创建一个 Conversation，并
@@ -24,6 +24,7 @@
 
 - `related-history`：只从上一轮已验收答案中解释、换算或改写，不重新查询数据。
 - `related-new-data`：与历史有关，但必须查询新数据。
+- `related-out-of-scope`：与历史对象有关，但请求的操作不属于当前 Skill 能力。
 - `unrelated-new-data`：同一会话中的新业务问题，不能把旧答案当成当前证据。
 - `unrelated-out-of-scope`：同一会话中的能力外问题，历史不能扩大 Skill 能力边界。
 

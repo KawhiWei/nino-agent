@@ -60,6 +60,17 @@ class PlannerHarness:
             }
             for node_id, result in (node_results or {}).items()
         }
+        semantic_scope_rule = (
+            "This is semantic fallback routing. First decide whether the requested domain and "
+            "operation fit a listed Skill capability. If they do not fit, call the rejection "
+            "Action immediately. Request clarification only when the request already fits a "
+            "listed capability and one missing parameter or genuinely ambiguous supported intent "
+            "would make it executable. Never use clarification to discuss, explain, or negotiate "
+            "an unsupported request."
+            if semantic_fallback else
+            "The request was deterministically recalled by a supported intent. Request "
+            "clarification only for information required to execute that supported intent."
+        )
         messages = (
             Message(role="system", content=self._agent.instructions),
             Message(role="system", content=self.catalog_prompt(candidates)),
@@ -76,7 +87,8 @@ class PlannerHarness:
                     "user for permission to perform this read-only repair. "
                     "When the request only explains, compares, reformats, or calculates from "
                     "facts already present in prior assistant answers, use the history-answer "
-                    "control Action instead of dispatching a worker."
+                    "control Action instead of dispatching a worker.\n"
+                    + semantic_scope_rule
                 ),
             ),
             *history,
